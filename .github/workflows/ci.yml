@@ -30,15 +30,16 @@ jobs:
     # pytest suite, Ruff on the owned modules and strict mypy on the typed modules. Blender,
     # FreeCAD and Unity are not installed, so their real-runtime tests skip with an explicit
     # reason. FFmpeg and the runner's preinstalled Google Chrome are used so the audio,
-    # game-asset and graphics rendering tests run for real.
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    # game-asset and graphics rendering tests run for real. Dependencies come from the
+    # committed root uv.lock (`uv sync --frozen`).
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       python-version: "3.12" # requires-python >= 3.12
       timeout-minutes: 30
       install-command: >-
         sudo apt-get update
         && sudo apt-get install -y --no-install-recommends ffmpeg
-        && uv pip install -e ".[test]"
+        && uv sync --frozen --extra test
       format-check: false
       # scripts/check.py runs strict mypy on its MYPY_TARGETS; the auto `mypy .` would also
       # check every service and the Blender-worker modules, which are not typed to that bar.
@@ -50,7 +51,7 @@ jobs:
     # TTF so the PDF renderer and the published-schema contract tests run for real. The font
     # must cover Latin and digits too (PDF text QA reads totals and dates back): TLWG Garuda
     # does, while NotoSansThai is Thai-only and fails that QA.
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       python-version: "3.12"
       install-command: >-
@@ -69,35 +70,35 @@ jobs:
         && (cd services/document-production-api && python -m pytest)
 
   brief-adapter-kit:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: packages/brief-adapter-kit
       python-version: "3.12"
       lint-command: ""
 
   data-production-ir:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: packages/data-production-ir
       python-version: "3.12"
       lint-command: ""
 
   file-intake:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: packages/file-intake
       python-version: "3.12"
       lint-command: ""
 
   marketing-production-ir:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: packages/marketing-production-ir
       python-version: "3.12"
       lint-command: ""
 
   production-trace:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: packages/production-trace
       python-version: "3.12"
@@ -105,21 +106,21 @@ jobs:
       lint-command: ""
 
   web-production-ir:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: packages/web-production-ir
       python-version: "3.12"
       lint-command: ""
 
   workflow-production-ir:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: packages/workflow-production-ir
       python-version: "3.12"
       lint-command: ""
 
   data-production-api:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: services/data-production-api
       python-version: "3.12"
@@ -129,7 +130,7 @@ jobs:
       lint-command: ""
 
   marketing-production-api:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: services/marketing-production-api
       python-version: "3.12"
@@ -139,14 +140,14 @@ jobs:
       lint-command: ""
 
   production-hub:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: services/production-hub
       python-version: "3.12"
       lint-command: "" # typecheck: auto (strict mypy from its [tool.mypy])
 
   production-pipelines:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: services/production-pipelines
       python-version: "3.12"
@@ -162,7 +163,7 @@ jobs:
       test-command: python -m pytest -q --ignore=tests/test_runner_fake_stages.py
 
   video-postproduction:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: services/video-postproduction
       python-version: "3.12"
@@ -173,7 +174,7 @@ jobs:
       typecheck-command: ""
 
   video-postproduction-api:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: services/video-postproduction-api
       python-version: "3.12" # matches its Dockerfile (python:3.12-slim)
@@ -184,7 +185,7 @@ jobs:
       typecheck-command: ""
 
   web-production-api:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: services/web-production-api
       python-version: "3.12"
@@ -192,7 +193,7 @@ jobs:
       lint-command: ""
 
   workflow-production-api:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: services/workflow-production-api
       python-version: "3.12"
@@ -200,13 +201,13 @@ jobs:
       lint-command: ""
 
   production-console-web:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-node.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-node.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: apps/production-console-web
       build-command: npm run build
 
   video-postproduction-web:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-node.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-node.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: apps/video-postproduction-web
       test-command: npx vitest run
@@ -214,9 +215,9 @@ jobs:
 
   video-postproduction-desktop:
     # Typecheck and `node --test` only; packaging (`electron-forge make`) targets Windows Squirrel.
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-node.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-node.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: apps/video-postproduction-desktop
 
   security:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/security.yml@c37ef9d113eefb3ed45429717cb7ca201192c3fc # v1.0.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/security.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
