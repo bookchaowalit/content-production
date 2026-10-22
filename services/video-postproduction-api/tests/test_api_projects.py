@@ -106,13 +106,13 @@ async def test_projects_can_be_listed_and_fetched(client, isolated_api):
 
 @pytest.mark.asyncio
 async def test_configured_api_token_protects_project_creation(client, isolated_api):
-    app.dependency_overrides[get_settings] = lambda: Settings(video_editor_api_token="local-secret")
+    app.dependency_overrides[get_settings] = lambda: Settings(video_editor_api_token="local-secret-0123456789")
 
     unauthorized = await client.post("/api/v1/projects", json={"name": "Demo"})
     authorized = await client.post(
         "/api/v1/projects",
         json={"name": "Demo"},
-        headers={"Authorization": "Bearer local-secret"},
+        headers={"Authorization": "Bearer local-secret-0123456789"},
     )
 
     assert unauthorized.status_code == 401

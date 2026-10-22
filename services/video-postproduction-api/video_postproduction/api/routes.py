@@ -55,6 +55,7 @@ from .dependencies import (
     get_settings,
     get_stage_runner,
     get_storage,
+    require_transcription_budget,
     require_write_access,
 )
 from .errors import APIError
@@ -195,7 +196,7 @@ def get_project_route(project_id: UUID, session: Session = Depends(get_session))
     "/projects/{project_id}/assets/{asset_id}/transcribe-accurately",
     response_model=JobResponse,
     status_code=202,
-    dependencies=[Depends(require_write_access)],
+    dependencies=[Depends(require_write_access), Depends(require_transcription_budget)],
 )
 def retranscribe_accurately_route(
     project_id: UUID,
@@ -218,7 +219,7 @@ def retranscribe_accurately_route(
     "/projects/{project_id}/assets",
     response_model=AssetUploadResponse,
     status_code=202,
-    dependencies=[Depends(require_write_access)],
+    dependencies=[Depends(require_write_access), Depends(require_transcription_budget)],
 )
 def upload_asset_route(
     project_id: UUID,
@@ -321,7 +322,7 @@ def get_job_route(job_id: UUID, session: Session = Depends(get_session)) -> JobR
 @router.post(
     "/jobs/{job_id}/retry",
     response_model=JobResponse,
-    dependencies=[Depends(require_write_access)],
+    dependencies=[Depends(require_write_access), Depends(require_transcription_budget)],
 )
 def retry_job_route(
     job_id: UUID,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from uuid import UUID
@@ -19,6 +20,10 @@ TRACE_ROOT = REPO_ROOT / "packages" / "production-trace"
 if str(TRACE_ROOT) not in sys.path:
     sys.path.append(str(TRACE_ROOT))
 
+# Tests run as the local Compose stack does: loopback use, explicitly opted out of the token.
+# tests/test_write_access.py turns the opt-in off to check the fail-closed default.
+os.environ.setdefault("VIDEO_EDITOR_ALLOW_UNAUTHENTICATED", "true")
+
 try:
     from video_postproduction.db import Base
 except ImportError:
@@ -28,6 +33,18 @@ try:
     from video_postproduction.main import app
 except ImportError:
     app = None
+
+
+@pytest.fixture(autouse=True)
+def _reset_write_limits():
+    try:
+        from video_postproduction.api.limits import reset_limits
+    except ImportError:
+        yield
+        return
+    reset_limits()
+    yield
+    reset_limits()
 
 
 @pytest.fixture

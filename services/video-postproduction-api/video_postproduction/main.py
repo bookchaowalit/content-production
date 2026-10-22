@@ -16,6 +16,7 @@ from .api.errors import (
 )
 from .api.routes import router
 from .config import Settings, get_settings
+from .error_reporting import init_error_reporting
 from .schemas import HealthResponse
 
 SERVICE_NAME = "video-postproduction-api"
@@ -24,6 +25,7 @@ API_VERSION = "1"
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     runtime_settings = settings or get_settings()
+    init_error_reporting()
     app = FastAPI(title="AI Post-Production API", version=API_VERSION)
     app.add_middleware(
         CORSMiddleware,

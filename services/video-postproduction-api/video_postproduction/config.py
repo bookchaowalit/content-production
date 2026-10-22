@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     openai_compatible_base_url: str | None = None
     openai_compatible_transcription_model: str = "gpt-4o-mini-transcribe"
     video_editor_api_token: str | None = None
+    # Explicit opt-in for loopback-only local use; without it, writes need a strong token.
+    video_editor_allow_unauthenticated: bool = False
+    write_rate_limit_per_minute: int = Field(default=60, ge=0)
+    # Upload, accurate retranscription and retry each queue one transcription job.
+    daily_transcription_jobs: int = Field(default=200, ge=0)
     ffprobe_executable: str = "ffprobe"
     ffmpeg_executable: str = "ffmpeg"
     job_lease_seconds: int = Field(default=900, gt=0)

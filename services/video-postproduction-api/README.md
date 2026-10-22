@@ -6,6 +6,25 @@ The runtime guide (Docker Compose, providers, secrets, smoke tests) lives in
 the EDL contract lives in
 [`packages/video-postproduction-edl`](../../packages/video-postproduction-edl/README.md).
 
+## Write access, limits and error reporting
+
+- Reads are open. Every write route (create project, upload, accurate
+  retranscription, retry, EDL edit, render, export) needs
+  `Authorization: Bearer $VIDEO_EDITOR_API_TOKEN` (16+ characters, constant-time
+  compare). With no token, or a shorter one, writes answer **503
+  `auth_not_configured`** (fail closed). Loopback-only use opts out explicitly with
+  `VIDEO_EDITOR_ALLOW_UNAUTHENTICATED=true`; the Compose stack sets that by default
+  because it publishes the API on `127.0.0.1` only.
+- `WRITE_RATE_LIMIT_PER_MINUTE` (default 60, per client IP) answers 429
+  `rate_limited`. `DAILY_TRANSCRIPTION_JOBS` (default 200, per UTC day) caps the
+  routes that queue a transcription job (upload, accurate retranscription, retry)
+  and answers 429 `transcription_budget_exhausted`. Both counters are in-process:
+  a multi-replica deployment would need a shared store. `0` refuses everything.
+- Sentry is opt-in: install the `sentry` extra (the Docker image does) and set
+  `SENTRY_DSN`. Errors only, no traces, and an allowlist `before_send`
+  (`video_postproduction/error_reporting.py`) drops messages, variables,
+  headers, query strings, bodies and breadcrumbs.
+
 ## Job history, trace & manual steps
 
 Every render job (`RenderService`) and every export job (`POST

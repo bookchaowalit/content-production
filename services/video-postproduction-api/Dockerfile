@@ -16,7 +16,7 @@ COPY services/video-postproduction-api/video_postproduction ./video_postproducti
 COPY services/video-postproduction-api/migrations ./migrations
 COPY services/video-postproduction-api/alembic.ini ./
 
-RUN pip install /app/packages/production-trace && pip install .[transcription]
+RUN pip install /app/packages/production-trace && pip install ".[transcription,sentry]"
 
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=6 \
