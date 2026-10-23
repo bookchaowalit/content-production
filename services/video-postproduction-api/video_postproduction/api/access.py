@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hmac
 
-MIN_TOKEN_LENGTH = 16
+MIN_TOKEN_LENGTH = 24
 
 
 def token_is_strong(token: str | None) -> bool:

@@ -10,7 +10,7 @@ the EDL contract lives in
 
 - Reads are open. Every write route (create project, upload, accurate
   retranscription, retry, EDL edit, render, export) needs
-  `Authorization: Bearer $VIDEO_EDITOR_API_TOKEN` (16+ characters, constant-time
+  `Authorization: Bearer $VIDEO_EDITOR_API_TOKEN` (24+ characters, constant-time
   compare). With no token, or a shorter one, writes answer **503
   `auth_not_configured`** (fail closed). Loopback-only use opts out explicitly with
   `VIDEO_EDITOR_ALLOW_UNAUTHENTICATED=true`; the Compose stack sets that by default

@@ -58,7 +58,7 @@ no hosted deployment.
 - Video transcription (`services/video-postproduction-api`): default `faster_whisper` runs a
   local Whisper model (no network call after the model download). The optional
   `openai_compatible` provider posts audio to a configured base URL and sends no credential.
-  Write routes fail closed without a 16+ character `VIDEO_EDITOR_API_TOKEN` (or the explicit
+  Write routes fail closed without a 24+ character `VIDEO_EDITOR_API_TOKEN` (or the explicit
   loopback opt-in), are rate-limited per client, and transcription jobs have a daily cap
   (in-process counters; see that service's README).
 - No key-shaped strings were found in the git history (scan on 2026-10-22).

@@ -43,7 +43,7 @@ services:
       OPENAI_COMPATIBLE_TRANSCRIPTION_MODEL: ${OPENAI_COMPATIBLE_TRANSCRIPTION_MODEL:-gpt-4o-mini-transcribe}
       VIDEO_EDITOR_API_TOKEN: ${VIDEO_EDITOR_API_TOKEN:-}
       # The stack publishes the API on 127.0.0.1 only, so local use may skip the token.
-      # Set this to false (and a 16+ character token) before exposing the port anywhere else.
+      # Set this to false (and a 24+ character token) before exposing the port anywhere else.
       VIDEO_EDITOR_ALLOW_UNAUTHENTICATED: ${VIDEO_EDITOR_ALLOW_UNAUTHENTICATED:-true}
       WRITE_RATE_LIMIT_PER_MINUTE: ${WRITE_RATE_LIMIT_PER_MINUTE:-60}
       DAILY_TRANSCRIPTION_JOBS: ${DAILY_TRANSCRIPTION_JOBS:-200}
