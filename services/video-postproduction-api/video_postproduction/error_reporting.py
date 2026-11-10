@@ -5,7 +5,9 @@ Off unless ``SENTRY_DSN`` is set and the ``sentry`` extra is installed
 exception type, the stack frames' file/function/line, the request method and path, and a few
 fixed fields survive. Exception messages, local variables, headers, cookies, query strings,
 bodies, user data and breadcrumbs are dropped, so uploaded file names, transcripts and tokens
-never leave the host.
+never leave the host. ``logentry`` and ``message`` (log text) are not allowlisted: the service
+never calls ``capture_message``. Log records never become events or breadcrumbs either:
+``LoggingIntegration`` is switched off, since log lines (ours or httpx's) hold free text.
 """
 
 from __future__ import annotations
@@ -59,6 +61,7 @@ def init_error_reporting() -> bool:
         return False
     try:
         sdk = import_module("sentry_sdk")
+        logging_integration = import_module("sentry_sdk.integrations.logging").LoggingIntegration
     except ImportError:
         return False
     sdk.init(
@@ -68,5 +71,6 @@ def init_error_reporting() -> bool:
         traces_sample_rate=0.0,
         max_breadcrumbs=0,
         before_send=scrub_event,
+        integrations=[logging_integration(level=None, event_level=None, sentry_logs_level=None)],
     )
     return True

@@ -52,6 +52,58 @@ def test_scrub_event_keeps_only_allowlisted_fields():
         assert secret not in flattened
 
 
+def test_scrub_event_drops_logentry_log_text():
+    event = {
+        "event_id": "abc",
+        "level": "error",
+        "logger": "httpx",
+        "logentry": {"message": "GET https://api.test/v1?api_key=sk-live-SECRET123 failed"},
+    }
+    clean = scrub_event(event)
+    assert "logentry" not in clean
+    assert "sk-live-SECRET123" not in repr(clean)
+
+
+def test_scrub_event_drops_message_not_from_our_reporters():
+    # The service never calls capture_message, so any message is free log text.
+    clean = scrub_event({"event_id": "abc", "message": "transcript for somchai@example.test"})
+    assert "message" not in clean
+    assert "somchai" not in repr(clean)
+
+
+def test_scrub_event_drops_exception_value():
+    clean = scrub_event({"exception": {"values": [{"type": "KeyError", "value": "'token=abc123'"}]}})
+    value = clean["exception"]["values"][0]
+    assert value["type"] == "KeyError"
+    assert "value" not in value
+
+
+class _FakeLoggingIntegration:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+def _install_fake_sdk(monkeypatch, calls):
+    fake = types.ModuleType("sentry_sdk")
+    fake.init = lambda **kwargs: calls.append(kwargs)  # type: ignore[attr-defined]
+    logging_mod = types.ModuleType("sentry_sdk.integrations.logging")
+    logging_mod.LoggingIntegration = _FakeLoggingIntegration  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sentry_sdk", fake)
+    monkeypatch.setitem(sys.modules, "sentry_sdk.integrations.logging", logging_mod)
+    monkeypatch.setenv("SENTRY_DSN", "https://public@example.invalid/1")
+
+
+def test_error_reporting_disables_log_to_event_and_breadcrumbs(monkeypatch):
+    calls: list[dict[str, object]] = []
+    _install_fake_sdk(monkeypatch, calls)
+
+    assert init_error_reporting() is True
+    integrations = calls[0]["integrations"]
+    assert isinstance(integrations, list) and len(integrations) == 1
+    assert isinstance(integrations[0], _FakeLoggingIntegration)
+    assert integrations[0].kwargs == {"level": None, "event_level": None, "sentry_logs_level": None}
+
+
 def test_error_reporting_is_off_without_a_dsn(monkeypatch):
     monkeypatch.delenv("SENTRY_DSN", raising=False)
     assert init_error_reporting() is False
@@ -59,10 +111,7 @@ def test_error_reporting_is_off_without_a_dsn(monkeypatch):
 
 def test_error_reporting_initialises_with_the_scrubber(monkeypatch):
     calls: list[dict[str, object]] = []
-    fake = types.ModuleType("sentry_sdk")
-    fake.init = lambda **kwargs: calls.append(kwargs)  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "sentry_sdk", fake)
-    monkeypatch.setenv("SENTRY_DSN", "https://public@example.invalid/1")
+    _install_fake_sdk(monkeypatch, calls)
 
     assert init_error_reporting() is True
     assert calls[0]["before_send"] is scrub_event

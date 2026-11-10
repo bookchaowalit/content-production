@@ -33,7 +33,7 @@ dev = [
   "ruff>=0.8,<1",
 ]
 # Opt-in error reporting: inert unless SENTRY_DSN is set (see video_postproduction/error_reporting.py).
-sentry = ["sentry-sdk[fastapi]>=2.20,<3"]
+sentry = ["sentry-sdk[fastapi]>=2.25,<3"]  # 2.25: LoggingIntegration(sentry_logs_level=)
 transcription = [
   "faster-whisper>=1.1,<2",
   # PyAV 19 removed av.open(metadata_errors=...), which faster-whisper 1.2 decode_audio passes.
