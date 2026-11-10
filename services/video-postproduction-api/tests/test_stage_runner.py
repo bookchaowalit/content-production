@@ -224,3 +224,31 @@ def test_recover_stale_running_job(session, tmp_path):
     session.refresh(stage)
     assert job.status == "retry_queued"
     assert stage.status == "queued"
+
+
+class CrashingProvider:
+    def transcribe(self, audio_path, metadata, language=None):
+        raise RuntimeError("unexpected")
+
+
+def test_unexpected_stage_failure_is_reported_to_sentry(session, tmp_path, monkeypatch):
+    # Log-to-event is off (log text can carry transcript content), so the caught failure
+    # must be reported explicitly or it never reaches Sentry.
+    reported: list[BaseException] = []
+    monkeypatch.setattr("video_postproduction.jobs.stages.report_exception", reported.append)
+    _, asset, storage = make_asset(session, tmp_path)
+    job = make_job(session, asset)
+    runner = StageRunner(
+        session,
+        storage=storage,
+        probe_reader=FakeProbe(),
+        transcription_provider=CrashingProvider(),
+        settings=Settings(max_stage_attempts=2),
+        queue=InlineJobQueue(),
+    )
+
+    runner.run_transcribe(job.id)
+
+    failed = session.query(ProcessingStage).filter_by(job_id=job.id, name="transcribe").one()
+    assert failed.error_code == "stage_error"
+    assert [type(e) for e in reported] == [RuntimeError]

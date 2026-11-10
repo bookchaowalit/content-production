@@ -117,3 +117,26 @@ def test_error_reporting_initialises_with_the_scrubber(monkeypatch):
     assert calls[0]["before_send"] is scrub_event
     assert calls[0]["send_default_pii"] is False
     assert calls[0]["traces_sample_rate"] == 0.0
+
+
+def test_report_exception_is_a_no_op_without_sentry(monkeypatch):
+    import sys
+
+    from video_postproduction.error_reporting import report_exception
+
+    monkeypatch.setitem(sys.modules, "sentry_sdk", None)  # import fails
+    report_exception(RuntimeError("x"))  # must not raise
+
+
+def test_report_exception_sends_to_sentry(monkeypatch):
+    import sys
+    import types
+
+    from video_postproduction.error_reporting import report_exception
+
+    sent = []
+    fake = types.SimpleNamespace(capture_exception=sent.append)
+    monkeypatch.setitem(sys.modules, "sentry_sdk", fake)
+    err = RuntimeError("x")
+    report_exception(err)
+    assert sent == [err]

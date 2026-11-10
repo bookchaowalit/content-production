@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..edl import validate_edl
+from ..error_reporting import report_exception
 from ..media.ffprobe import FFprobeMetadataReader, MediaProbeError
 from ..media.models import AudioStreamMetadata, MediaMetadata, VideoStreamMetadata
 from ..models import (
@@ -325,8 +326,9 @@ class StageRunner:
                 error_code="transcript_invalid",
                 error_message=f"Transcript from provider failed validation: {exc}",
             )
-        except Exception:  # convert unexpected stage failures to safe state, keeping the traceback in logs
+        except Exception as exc:  # convert unexpected stage failures to safe state, keeping the traceback in logs
             _logger.exception("transcription stage failed unexpectedly for job %s", job.id)
+            report_exception(exc)
             self._fail_stage(job, stage, error_code="stage_error", error_message="Transcription stage failed")
 
     def retry_stage(self, job_id: UUID, stage_name: str) -> ProcessingJob:

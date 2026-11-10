@@ -74,3 +74,18 @@ def init_error_reporting() -> bool:
         integrations=[logging_integration(level=None, event_level=None, sentry_logs_level=None)],
     )
     return True
+
+
+def report_exception(exc: BaseException) -> None:
+    """Report a failure the service catches and turns into a safe state.
+
+    Log-to-event is off, so ``_logger.exception`` alone no longer reaches Sentry. The event
+    still passes ``scrub_event`` (type and stack only). A no-op without sentry-sdk or before
+    ``init_error_reporting``.
+    """
+
+    try:
+        sdk = import_module("sentry_sdk")
+    except ImportError:
+        return
+    sdk.capture_exception(exc)
