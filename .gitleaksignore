@@ -2,3 +2,5 @@
 # generic-api-key on line 45 of a BIM plan document: the match is ordinary English prose in a
 # review checklist (JSON validation edge cases), not a credential. Reviewed 2026-10-17.
 8ef9faa124ea12ba618ec9dd86c7be98a92e6b69:docs/superpowers/plans/2026-09-25-bim-quantity-takeoff-v1a.md:generic-api-key:45
+# Fake "sk-live-..." token in a Sentry scrub regression test (replaced by a low-entropy fake in the next commit). Reviewed 2026-11-10.
+8014d79d1e185b1e3967e4d8567674fda66c266c:services/video-postproduction-api/tests/test_error_reporting.py:generic-api-key:60

@@ -57,11 +57,11 @@ def test_scrub_event_drops_logentry_log_text():
         "event_id": "abc",
         "level": "error",
         "logger": "httpx",
-        "logentry": {"message": "GET https://api.test/v1?api_key=sk-live-SECRET123 failed"},
+        "logentry": {"message": "GET https://api.test/v1?token=leaky-token failed"},
     }
     clean = scrub_event(event)
     assert "logentry" not in clean
-    assert "sk-live-SECRET123" not in repr(clean)
+    assert "leaky-token" not in repr(clean)
 
 
 def test_scrub_event_drops_message_not_from_our_reporters():
