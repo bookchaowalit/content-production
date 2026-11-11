@@ -43,10 +43,13 @@ from ..schemas import (
     RenderOutputResponse,
     RenderRequest,
     RetryRequest,
+    SilenceCutRequest,
     TranscriptionCapabilities,
     TranscriptResponse,
 )
+from ..silence import SilenceCutError, silence_cut
 from ..storage.base import StorageProvider
+from ..transcription.models import NormalizedTranscript
 from .dependencies import (
     get_job_queue,
     get_probe_reader,
@@ -409,6 +412,56 @@ def update_edl_route(
         version=(current.version + 1) if current else 1,
         schema_version="edl.v1",
         document=validated.model_dump(mode="json"),
+        status="draft",
+    )
+    session.add(edl)
+    session.commit()
+    return _edl_response(edl)
+
+
+@router.post(
+    "/projects/{project_id}/edl/silence-cut",
+    response_model=EDLResponse,
+    dependencies=[Depends(require_write_access)],
+)
+def silence_cut_route(
+    project_id: UUID,
+    payload: SilenceCutRequest | None = Body(default=None),
+    session: Session = Depends(get_session),
+) -> EDLResponse:
+    """Keep only the spoken ranges of the latest EDL (deterministic; saved as the next version)."""
+
+    get_project_or_error(session, project_id)
+    options = payload or SilenceCutRequest()
+    current = session.scalar(select(EDL).where(EDL.project_id == project_id).order_by(EDL.version.desc()))
+    if current is None:
+        raise APIError("edl_not_ready", "The edit decision list is not ready yet.", 409)
+    transcript = session.scalar(
+        select(Transcript)
+        .where(Transcript.project_id == project_id, Transcript.asset_id == current.source_asset_id)
+        .order_by(Transcript.created_at.desc())
+    )
+    if transcript is None:
+        raise APIError("transcript_not_ready", "The transcript is not ready yet.", 409)
+    try:
+        cut = silence_cut(
+            validate_edl(current.document),
+            NormalizedTranscript.model_validate(transcript.normalized_json),
+            min_gap_s=options.min_gap_s,
+            padding_s=options.padding_s,
+            remove_fillers=options.remove_fillers,
+        )
+    except SilenceCutError as exc:
+        code = "silence_cut_no_speech" if exc.code == "no_speech" else "silence_cut_invalid"
+        raise APIError(code, "The silence cut could not be made.", 422) from exc
+    except ValueError as exc:
+        raise APIError("edl_invalid", "The edit decision list is invalid.", 422) from exc
+    edl = EDL(
+        project_id=project_id,
+        source_asset_id=current.source_asset_id,
+        version=current.version + 1,
+        schema_version="edl.v1",
+        document=cut.model_dump(mode="json"),
         status="draft",
     )
     session.add(edl)
