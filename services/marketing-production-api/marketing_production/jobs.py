@@ -23,7 +23,7 @@ from marketing_ir import (
 from production_trace import TraceRecorder
 from pydantic import ValidationError
 
-from .channel_tools import asset_checks, experiments, tracked_links
+from .channel_tools import asset_checks, bulk_csv, calendar, experiments, tracked_links
 from .copy_rules import CHANNEL_LIMITS, copy_length
 from .manual import build_marketing_guide
 from .qa import run_package_qa
@@ -32,10 +32,12 @@ from .telemetry import JobTelemetry
 CONTRACT_VERSION = "marketing.v1a"
 # v2 adds A/B variants, the UTM link builder, and hashtag/mention rules. A v1
 # request (no variant, no utm, tags within limits) keeps its exact hash and bytes.
-RECIPE_VERSION = "campaign-package-v2"
-REPLAYABLE_RECIPE_VERSIONS = frozenset({"campaign-package-v1", RECIPE_VERSION})
+# v3 adds copy rules on the structured build, email subject/preheader, planned dates
+# (calendar), the A/B sample-size plan, and the bulk CSV export.
+RECIPE_VERSION = "campaign-package-v3"
+REPLAYABLE_RECIPE_VERSIONS = frozenset({"campaign-package-v1", "campaign-package-v2", RECIPE_VERSION})
 TOOL_ID = "marketing-v1a"
-ENGINE_VERSION = "marketing-production-engine.v2"
+ENGINE_VERSION = "marketing-production-engine.v3"
 
 
 class IdempotencyConflict(ValueError):
@@ -141,15 +143,25 @@ def _source_hashes(request: CampaignRequest) -> dict[str, str]:
     return dict(sorted(hashes.items()))
 
 
+_OPTIONAL_CAMPAIGN_KEYS = ("utm", "timezone", "brand_rules", "experiment_plan")
+_OPTIONAL_ASSET_KEYS = ("variant", "subject", "preheader", "planned_at")
+
+
+def _artifact_bytes(filename: str, data: bytes, media_type: str) -> ArtifactRef:
+    return ArtifactRef(filename=filename, media_type=media_type, content_hash=hashlib.sha256(data).hexdigest(), byte_size=len(data))
+
+
 def campaign_dump(ir: CampaignIR) -> dict[str, Any]:
     """IR dump without the v2 fields left unset (keeps v1 hashes and package bytes)."""
 
     payload = ir.model_dump(mode="json")
-    if payload.get("utm") is None:
-        payload.pop("utm", None)
+    for key in _OPTIONAL_CAMPAIGN_KEYS:
+        if payload.get(key) is None:
+            payload.pop(key, None)
     for asset in payload.get("assets", []):
-        if asset.get("variant") is None:
-            asset.pop("variant", None)
+        for key in _OPTIONAL_ASSET_KEYS:
+            if asset.get(key) is None:
+                asset.pop(key, None)
     return payload
 
 
@@ -343,8 +355,8 @@ def run_campaign_job(
     manifest_path = output_path / f"manifest-{key_hash}.json"
     with _key_lock(output_path, idempotency_key):
         if manifest_path.exists():
-            legacy = _input_hash(ir, source_hashes, "campaign-package-v1")
-            return _replay(output_path, manifest_path, {input_hash, legacy}, idempotency_key)
+            accepted_hashes = {_input_hash(ir, source_hashes, version) for version in REPLAYABLE_RECIPE_VERSIONS}
+            return _replay(output_path, manifest_path, accepted_hashes, idempotency_key)
 
         trace.job_id = hashlib.sha256(f"{idempotency_key}:{input_hash}".encode()).hexdigest()[:20]
         try:
@@ -366,10 +378,16 @@ def run_campaign_job(
                 package_payload["experiments"] = groups
             if checks:
                 package_payload["checks"] = checks
+            dated = calendar(ir)
+            if dated:
+                package_payload["calendar"] = dated
             with trace.step("render", "write_package") as render_step:
                 package_bytes = json.dumps(package_payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
                 _write_atomic(package_path, package_bytes)
-                render_step.outputs = [package_name]
+                csv_name = package_name.removesuffix(".campaign.json") + ".bulk.csv"
+                csv_bytes = bulk_csv(ir, links)
+                _write_atomic(output_path / csv_name, csv_bytes)
+                render_step.outputs = [package_name, csv_name]
             with trace.step("qa", "run_package_qa") as qa_step:
                 qa_issues = run_package_qa(package_path)
                 qa_step.params["issues"] = list(qa_issues)
@@ -377,6 +395,7 @@ def run_campaign_job(
                     qa_step.status = "failed"
             if qa_issues:
                 package_path.unlink(missing_ok=True)
+                (output_path / csv_name).unlink(missing_ok=True)
                 trace.qa = {"status": "failed", "checks": len(qa_issues)}
                 _trace_failure(trace, job_dir, output_path, qa_issues[0])
                 return _rejected(idempotency_key, request.campaign_id, qa_issues[0])
@@ -384,6 +403,7 @@ def run_campaign_job(
             _trace_failure(trace, job_dir, output_path, type(exc).__name__)
             raise
         artifact = _artifact(package_path)
+        export = _artifact_bytes(csv_name, csv_bytes, "text/csv")
         manifest = {
             "schema_version": "campaign-manifest.v1",
             "campaign_id": request.campaign_id,
@@ -391,18 +411,21 @@ def run_campaign_job(
             "idempotency_key": idempotency_key,
             "input_hash": input_hash,
             "package": artifact.model_dump(),
+            "exports": [export.model_dump()],
             "lineage": {"source_refs": ir.source_refs, "asset_hashes": source_hashes},
             "telemetry": JobTelemetry(model_calls=0, bytes_written=artifact.byte_size).to_dict(),
             "metadata": {"contract_version": CONTRACT_VERSION, "recipe_version": RECIPE_VERSION},
         }
         manifest_bytes = json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
-        bytes_written = artifact.byte_size + _write_atomic(manifest_path, manifest_bytes)
+        bytes_written = artifact.byte_size + export.byte_size + _write_atomic(manifest_path, manifest_bytes)
         trace.record_step("publish", "write_manifest", outputs=[manifest_path.name, "ir.json"])
         try:
             # The job directory keeps a frozen copy so `production_trace verify` can re-hash it;
             # the top-level package stays where the manifest (and the Production Hub) expect it.
             shutil.copyfile(package_path, job_dir / package_name)
             trace.artifact(job_dir / package_name, media_type="application/json")
+            shutil.copyfile(output_path / csv_name, job_dir / csv_name)
+            trace.artifact(job_dir / csv_name, media_type="text/csv")
             guide = build_marketing_guide(ir, links=links, experiments=groups, checks=checks)
             trace.finish(status="accepted", job_dir=job_dir, output_root=output_path, guide=guide, qa={"status": "passed", "checks": []})
         except OSError:

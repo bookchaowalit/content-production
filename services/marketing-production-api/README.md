@@ -26,9 +26,31 @@ Recipe `campaign-package-v2` adds optional A/B `variant` labels on assets, a
 `utm` block (`landing_url`, optional `campaign`, `term`) that produces one
 tracked link per copy / email / landing asset (`package ▸ links`), and
 hashtag / mention rules (Instagram > 30 hashtags or > 20 mentions rejects the
-build; other findings go to `package ▸ checks`). Copy is never rewritten. See
-[docs/PARITY.md](docs/PARITY.md) for the comparison with Meta Business Suite,
-Hootsuite, and Canva and the roadmap.
+build; other findings go to `package ▸ checks`). Copy is never rewritten.
+
+Recipe `campaign-package-v3` (2026-11-12; v1/v2 manifests still replay) adds:
+
+- copy rules on every build: platform hard limits (IG 2,200, LinkedIn 3,000,
+  FB 63,206, LINE 5,000) and forbidden words (baseline + optional
+  `brand_rules.forbidden_words`) and markup reject; engine limits and claim
+  markers become review `checks`;
+- `subject` / `preheader` on email assets (≤ 150 characters);
+- `planned_at` per asset and campaign `timezone` → `package ▸ calendar`
+  (metadata only, never scheduled);
+- `experiment_plan` → `experiments[*].plan` with the per-variant sample size and
+  duration;
+- a bulk CSV next to the package (`<campaign>-<hash>.bulk.csv`, listed in
+  `manifest ▸ exports`, cells starting with `= + - @` prefixed with `'`);
+- an approval record bound to the package sha256:
+
+```text
+python -m marketing_production.cli approve --package out/<name>.campaign.json --decision approved --reviewer owner
+python -m marketing_production.cli approval-status --package out/<name>.campaign.json   # exit 0 only when approved
+```
+
+Example input: `examples/marketing/campaign.json`. Parity matrix:
+[docs/parity/marketing.md](../../docs/parity/marketing.md); reverse guide:
+[docs/reverse/marketing-v1a/meta-business-suite.md](../../docs/reverse/marketing-v1a/meta-business-suite.md).
 
 ## Job history, trace & manual steps
 

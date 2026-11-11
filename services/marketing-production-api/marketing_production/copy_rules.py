@@ -32,6 +32,13 @@ CHANNEL_LIMITS: dict[str, int] = {
     "line": 400,
     "web": 300,
 }
+# Hard limits of the platforms themselves (characters); above them the post cannot be made.
+PLATFORM_LIMITS: dict[str, int] = {
+    "facebook": 63_206,
+    "instagram": 2_200,
+    "linkedin": 3_000,
+    "line": 5_000,
+}
 DEFAULT_FORBIDDEN_WORDS: tuple[str, ...] = (
     "guaranteed results", "risk-free", "miracle", "cure", "รับประกันผล", "หายขาด", "ปาฏิหาริย์",
 )
@@ -63,10 +70,22 @@ def copy_length(text: str) -> int:
     return len(unicodedata.normalize("NFC", text))
 
 
+def _word_hit(word: str, haystack: str) -> bool:
+    needle = normalize(word).casefold().strip()
+    if needle.isascii():  # Latin words match whole words only ("cure" is not in "secure")
+        pattern = "(?<![a-z0-9])" + re.escape(needle) + "(?![a-z0-9])"
+        return re.search(pattern, haystack) is not None
+    return needle in haystack  # Thai has no spaces between words
+
+
 def forbidden_hits(text: str, forbidden_words: Iterable[str] = ()) -> list[str]:
     haystack = normalize(text).casefold()
     words = {*DEFAULT_FORBIDDEN_WORDS, *(word for word in forbidden_words if word.strip())}
-    return sorted(word for word in words if normalize(word).casefold().strip() in haystack)
+    return sorted(word for word in words if _word_hit(word, haystack))
+
+
+def unsafe_markup(text: str) -> bool:
+    return _UNSAFE.search(text) is not None
 
 
 def claim_markers(text: str) -> set[str]:
@@ -104,6 +123,7 @@ __all__ = [
     "CHANNEL_LIMITS",
     "CLAIM_MARKERS",
     "DEFAULT_FORBIDDEN_WORDS",
+    "PLATFORM_LIMITS",
     "claim_markers",
     "copy_issues",
     "copy_length",
@@ -111,4 +131,5 @@ __all__ = [
     "links_in",
     "normalize",
     "numbers_in",
+    "unsafe_markup",
 ]

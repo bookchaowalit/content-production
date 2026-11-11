@@ -20,7 +20,13 @@ from typing import Any
 from marketing_ir import AssetSpec, CampaignIR
 from production_trace import ManualGuide
 
-from .channel_tools import hashtags_in, mentions_in
+from .channel_tools import (
+    BULK_COLUMNS,
+    FRAME_SIZES,
+    bulk_rows,
+    hashtags_in,
+    mentions_in,
+)
 from .copy_rules import CHANNEL_LIMITS, copy_length
 
 _PROGRAMS: dict[str, dict[str, str]] = {
@@ -85,16 +91,62 @@ _PROGRAMS: dict[str, dict[str, str]] = {
         "ab": "WordPress ไม่มี A/B ในตัว: สร้างแบบร่างแยกต่อ variant",
     },
 }
-# Post-ready frame sizes (px) to prepare in Canva for each channel's image slot.
-FRAME_SIZES: dict[str, tuple[int, int, str]] = {
-    "facebook": (1080, 1080, "Feed 1:1"),
-    "instagram": (1080, 1350, "Feed 4:5"),
-    "linkedin": (1200, 627, "Shared image 1.91:1"),
-    "line": (1040, 1040, "Rich/Image message 1:1"),
-    "email": (1200, 600, "Email header 2:1 (แสดงกว้าง 600 px)"),
-    "web": (1200, 630, "Hero/OG image 1.91:1"),
-}
 _KIND_LABELS = {"copy": "ข้อความ", "email": "ข้อความอีเมล", "image": "ภาพ", "video": "วิดีโอ", "landing_page": "ลิงก์หน้า landing"}
+
+
+SHEET_PROGRAM = "LibreOffice Calc"
+SHEET_SECTION = "LibreOffice Calc: ไฟล์ bulk CSV (นำเข้าเครื่องมือจัดโพสต์)"
+APPROVAL_SECTION = "อนุมัติ (คนตัดสินใจ)"
+
+
+def column_letter(index: int) -> str:
+    """0 → A, 13 → N (enough for the bulk sheet)."""
+
+    return chr(ord("A") + index)
+
+
+def _sheet_steps(guide: ManualGuide, ir: CampaignIR, links: Sequence[Mapping[str, str]]) -> None:
+    section = SHEET_SECTION
+    rows = bulk_rows(ir, [dict(item) for item in links])
+    last = f"{column_letter(len(BULK_COLUMNS) - 1)}{len(rows) + 1}"
+    guide.layer("Sheet1", "Calc sheet", content=f"{len(rows) + 1} แถว × {len(BULK_COLUMNS)} คอลัมน์ (A1:{last})", position="หัวคอลัมน์แถว 1")
+    guide.step("สร้างสเปรดชีตใหม่", tool="File ▸ New ▸ Spreadsheet", section=section)
+    guide.step(
+        "ตั้งทุกเซลล์เป็นข้อความ เพื่อให้ค่าอย่าง `'=`, `+66`, `0012` ไม่ถูกแปลงเป็นสูตร/ตัวเลข",
+        tool="Ctrl+A ▸ Format ▸ Cells… ▸ Numbers ▸ Category: Text ▸ OK",
+        section=section,
+    )
+    guide.step("ปิดการเติมคำอัตโนมัติ เพื่อไม่ให้ Calc เติมข้อความจากแถวก่อน", tool="Tools ▸ AutoInput (ยกเลิกเครื่องหมายถูก)", section=section)
+    for column, name in enumerate(BULK_COLUMNS):
+        guide.step("พิมพ์หัวคอลัมน์", target=f"{column_letter(column)}1", value=name, section=section)
+    for row_number, row in enumerate(rows, start=2):
+        for column, name in enumerate(BULK_COLUMNS):
+            if row[name]:
+                note = "พิมพ์ ' นำหน้าด้วย (กันสูตรเมื่อเปิดไฟล์ใน Excel)" if row[name].startswith("'") else ""
+                guide.step(f"พิมพ์ `{name}` ของ `{row['asset_id']}`", target=f"{column_letter(column)}{row_number}", value=row[name], note=note, section=section)
+    guide.step(
+        "บันทึกเป็น CSV",
+        tool='File ▸ Save As… ▸ File type: Text CSV (.csv) ▸ Use Text CSV Format ▸ Character set: Unicode (UTF-8), Field delimiter: comma (,), String delimiter: double quote (")',
+        value=f"{ir.campaign_id}.bulk.csv",
+        note="เทียบทีละเซลล์กับไฟล์ `.bulk.csv` ของเครื่องมือ (manifest ▸ exports)",
+        section=section,
+    )
+
+
+def _approval_steps(guide: ManualGuide, ir: CampaignIR) -> None:
+    guide.step(
+        "ผู้อนุมัติตรวจแบบร่างทุกช่องทางเทียบกับแพ็กเกจ แล้วบันทึกผล (approved / changes_requested / rejected)",
+        tool="python -m marketing_production.cli approve --package <ไฟล์ .campaign.json> --decision approved --reviewer <ชื่อย่อ>",
+        note="ผลผูกกับ sha256 ของแพ็กเกจและไฟล์ bulk CSV; ไฟล์ใดเปลี่ยนหรือหาย = สถานะ stale ต้องอนุมัติใหม่",
+        section=APPROVAL_SECTION,
+    )
+    guide.step(
+        "ตรวจสถานะก่อนให้คนกดเผยแพร่เอง",
+        tool="python -m marketing_production.cli approval-status --package <ไฟล์ .campaign.json>",
+        value="approved",
+        note=f"แคมเปญ `{ir.campaign_id}`: เครื่องมือไม่เผยแพร่เอง",
+        section=APPROVAL_SECTION,
+    )
 
 
 def programs_for(ir: CampaignIR) -> list[str]:
@@ -105,6 +157,7 @@ def programs_for(ir: CampaignIR) -> list[str]:
             names.append(name)
     if any(asset.kind in {"image", "video"} for asset in ir.assets):
         names.append("Canva")
+    names.append(SHEET_PROGRAM)
     return names
 
 
@@ -122,6 +175,15 @@ def export_name(asset: AssetSpec) -> str:
 def _asset_steps(guide: ManualGuide, asset: AssetSpec, links: Mapping[str, str], section: str) -> None:
     spec = _PROGRAMS[asset.channel]
     label = f"{_KIND_LABELS[asset.kind]} `{asset.asset_id}`" + (f" (variant {asset.variant})" if asset.variant else "")
+    if asset.subject:
+        guide.step(f"ใส่หัวเรื่องอีเมลของ `{asset.asset_id}`", tool="Subject ▸ Add subject ▸ Subject line", value=asset.subject,
+                   note=f"{copy_length(asset.subject)}/150 ตัวอักษร (แนะนำ ≤ 60)", section=section)
+    if asset.preheader:
+        guide.step(f"ใส่ข้อความพรีวิวของ `{asset.asset_id}`", tool="Subject ▸ Add subject ▸ Preview text", value=asset.preheader,
+                   note=f"{copy_length(asset.preheader)}/150 ตัวอักษร", section=section)
+    if asset.planned_at:
+        guide.step(f"จดวันที่วางแผนของ `{asset.asset_id}` ไว้ให้ผู้อนุมัติ (ห้ามตั้งเวลาในโปรแกรม)", value=asset.planned_at,
+                   note="package ▸ calendar; เป็นข้อมูลเท่านั้น", section=section)
     if asset.kind in {"copy", "email"} and asset.text is not None:
         limit = CHANNEL_LIMITS.get(asset.channel)
         tags, mentions = hashtags_in(asset.text), mentions_in(asset.text)
@@ -188,12 +250,22 @@ def build_marketing_guide(ir: CampaignIR, *, links: Sequence[Mapping[str, str]] 
         guide.step("เลือกปลายทาง", tool=spec["placement"], section=section)
         if group is not None:
             versions = ", ".join(f"{item['variant']}={item['asset_id']}" for item in group["variants"])
-            guide.step("ตั้ง A/B test", tool=spec["ab"], value=versions, section=section)
+            plan = group.get("plan")
+            note = (
+                f"แผน: วัด {plan['metric']}, ต้องการ {plan['sample_per_variant']} คนต่อ variant ≈ {plan['duration_days']} วัน "
+                f"(baseline {plan['baseline_rate']}, lift {plan['minimum_detectable_lift']}, alpha {plan['alpha']}, power {plan['power']})"
+                if plan
+                else ""
+            )
+            guide.step("ตั้ง A/B test", tool=spec["ab"], value=versions, note=note, section=section)
         for asset in assets:
             _asset_steps(guide, asset, link_by_asset, section)
         for finding in (item for item in checks if item["channel"] == channel):
             guide.step("ตรวจข้อสังเกตจากเครื่องมือก่อนส่งอนุมัติ", target=f"asset {finding['asset_id']}", value=finding["code"], note=f"ระดับ {finding['severity']}", section=section)
         guide.step("บันทึกเป็นแบบร่างแล้วส่งให้ผู้อนุมัติ (ห้ามโพสต์/ตั้งเวลาเอง)", tool=spec["draft"], section=section)
+
+    _sheet_steps(guide, ir, links)
+    _approval_steps(guide, ir)
 
     text_assets = [asset for asset in ir.assets if asset.text]
     guide.checks = [
@@ -201,12 +273,14 @@ def build_marketing_guide(ir: CampaignIR, *, links: Sequence[Mapping[str, str]] 
         *(f"`{asset.asset_id}` ({asset.channel}) ยาว {copy_length(asset.text or '')} ตัวอักษร ≤ {CHANNEL_LIMITS.get(asset.channel)}; ข้อความตรงกับแพ็กเกจทุกตัวอักษร" for asset in text_assets),
         *(f"ลิงก์ของ `{item['asset_id']}` = `{item['url']}` (package ▸ links)" for item in links),
         *(f"ไฟล์ต้นฉบับ `{asset.uri}` มี sha256 ตรงกับ package ▸ lineage.asset_hashes.{asset.asset_id} (`sha256sum`)" for asset in images if not asset.uri.lower().startswith("inline:")),
+        f"ไฟล์ CSV จาก Calc มี {len(ir.assets) + 1} แถว และทุกเซลล์ตรงกับ `.bulk.csv` ของเครื่องมือ (อ่านทั้งสองไฟล์ด้วยตัวอ่าน CSV แล้วเทียบทีละเซลล์)",
         "ไม่มีโพสต์ใดถูก Publish / Schedule / Send และไม่มีงบโฆษณาถูกตั้ง",
     ]
     guide.glossary = {
         "แบบร่าง (draft)": "สถานะที่ยังไม่เผยแพร่; ผู้อนุมัติเป็นคนกดเผยแพร่เอง",
         "utm": "พารามิเตอร์ท้ายลิงก์ที่บอก Google Analytics ว่าคลิกมาจากช่องทาง/แคมเปญ/ชิ้นงานใด",
         "A/B test": "ทดลองหลายเวอร์ชันของชิ้นงานเดียวกันเพื่อดูว่าแบบไหนได้ผลกว่า",
+        "bulk CSV": "ไฟล์ตารางหนึ่งแถวต่อชิ้นงาน ใช้นำเข้าเครื่องมือจัดโพสต์หลายชิ้นพร้อมกัน",
     }
     guide.estimated_minutes = round(
         3 + 3 * len(text_assets) + 8 * len(images) + 1 * len(links) + 4 * len(experiments) + 2 * len(ir.channels), 1
@@ -214,4 +288,4 @@ def build_marketing_guide(ir: CampaignIR, *, links: Sequence[Mapping[str, str]] 
     return guide
 
 
-__all__ = ["FRAME_SIZES", "build_marketing_guide", "export_name", "programs_for"]
+__all__ = ["FRAME_SIZES", "SHEET_PROGRAM", "build_marketing_guide", "column_letter", "export_name", "programs_for"]

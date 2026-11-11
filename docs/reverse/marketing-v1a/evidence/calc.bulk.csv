@@ -1,0 +1,7 @@
+campaign_id,channel,asset_id,kind,variant,planned_at,subject,preheader,text,chars,char_limit,tracked_link,frame_size,source
+rainy-season-01,email,newsletter,email,,2026-12-02,ลาเต้ร้อน 55 บาท ต้อนรับหน้าฝน,เฉพาะสมาชิก ถึงสิ้นเดือนนี้,สวัสดีสมาชิกบ้านสวน หน้าฝนนี้เรามีลาเต้ร้อนแก้วละ 55 บาท แสดงอีเมลนี้ที่หน้าร้านได้เลย,86,1200,https://example.com/rainy?utm_source=newsletter&utm_medium=email&utm_campaign=rainy-season-01&utm_content=newsletter&utm_term=rainy-latte,,
+rainy-season-01,facebook,fb-post,copy,,2026-12-01T12:00,,,หน้าฝนนี้ ลาเต้ร้อนแก้วละ 55 บาท ทุกสาขา ถึง 31 ธ.ค.,52,500,https://example.com/rainy?utm_source=facebook&utm_medium=social&utm_campaign=rainy-season-01&utm_content=fb-post&utm_term=rainy-latte,,
+rainy-season-01,instagram,ig-a,copy,A,2026-12-01T09:00,,,ฝนตกแบบนี้ ลาเต้ร้อนแก้วละ 55 บาท ถึงสิ้นเดือน #ร้านกาแฟบ้านสวน #หน้าฝน,71,500,https://example.com/rainy?utm_source=instagram&utm_medium=social&utm_campaign=rainy-season-01&utm_content=ig-a&utm_term=rainy-latte,,
+rainy-season-01,instagram,ig-b,copy,B,2026-12-01T09:00,,,แวะหลบฝนมาจิบลาเต้ร้อน 55 บาท @baansuan.cafe #หน้าฝน,52,500,https://example.com/rainy?utm_source=instagram&utm_medium=social&utm_campaign=rainy-season-01&utm_content=ig-b&utm_term=rainy-latte,,
+rainy-season-01,instagram,ig-hero,image,,,,,,,,,1080x1350,hero.png
+rainy-season-01,line,line-msg,copy,,2026-12-03,,,'- ลาเต้ร้อน 55 บาท ทุกสาขา ถึง 31 ธ.ค.,38,400,https://example.com/rainy?utm_source=line&utm_medium=messaging&utm_campaign=rainy-season-01&utm_content=line-msg&utm_term=rainy-latte,,

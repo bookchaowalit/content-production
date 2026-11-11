@@ -1,0 +1,11 @@
+{
+ "engine_rows": 7,
+ "calc_rows": 7,
+ "columns": 14,
+ "cells_compared": 98,
+ "cells_differing": 0,
+ "engine_sha256": "a45d08b52dde4946443293fb08f4c2c78c8228d66322ad0d0c5a77071bf0b7bb",
+ "calc_sha256": "adff038583b7b0409217fdece0684f0c0b32f2d10ec181c571eb0e1ed0a1bf1b",
+ "byte_identical": false,
+ "diffs": []
+}
