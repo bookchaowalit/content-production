@@ -349,3 +349,18 @@ def test_campaign_brief_refuses_a_size_the_campaign_cannot_make() -> None:
     plan = {"posts": [{"id": "p1", "content": {"headline": "ลดราคา"}}], "variants": ["a4"]}
     assert any(problem.startswith("variants_invalid") for problem in plan_problems(plan, brief, []))
     assert not any(problem.startswith("variants_invalid") for problem in plan_problems({**plan, "variants": ["square"]}, brief, []))
+
+
+def test_a4_uses_its_own_variant_conditions_instead_of_portraits() -> None:
+    from book_production_platform.graphics_production.themes import _condition_holds
+
+    def ctx(variant: str, layers: list[dict[str, object]]) -> SimpleNamespace:
+        return SimpleNamespace(request=SimpleNamespace(variant=variant, assets={}, content={}),
+                               theme=SimpleNamespace(layers=tuple(layers)))
+
+    portrait_only = [{"id": "L", "items": [{"id": "p", "when": {"variant": ["portrait"]}}]}]
+    both = [{"id": "L", "items": [{"id": "p", "when": {"variant": ["portrait"]}}, {"id": "a", "when": {"variant": "a4"}}]}]
+    assert _condition_holds({"variant": ["portrait"]}, ctx("a4", portrait_only))  # type: ignore[arg-type]
+    assert not _condition_holds({"variant": ["portrait"]}, ctx("a4", both))  # type: ignore[arg-type]
+    assert _condition_holds({"variant": "a4"}, ctx("a4", both))  # type: ignore[arg-type]
+    assert not _condition_holds({"variant": ["portrait"]}, ctx("square", portrait_only))  # type: ignore[arg-type]

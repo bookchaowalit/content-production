@@ -514,6 +514,21 @@ class ThemeSlotMissing(ThemeError):
         self.slot = slot
 
 
+def _names_variant(node: Any, variant: str) -> bool:
+    """Whether any ``when.variant`` in the theme layers names ``variant``."""
+
+    if isinstance(node, Mapping):
+        when = node.get("when")
+        if isinstance(when, Mapping):
+            named = when.get("variant")
+            if variant == named or (isinstance(named, list) and variant in named):
+                return True
+        return any(_names_variant(value, variant) for value in node.values())
+    if isinstance(node, list | tuple):
+        return any(_names_variant(value, variant) for value in node)
+    return False
+
+
 def _condition_holds(when: Any, ctx: Context) -> bool:
     if when is None:
         return True
@@ -529,8 +544,11 @@ def _condition_holds(when: Any, ctx: Context) -> bool:
             return False
         if key == "no_slot" and any(ctx.request.content.get(item, "").strip() for item in values):
             return False
-        if key == "variant" and ctx.request.variant not in values and VARIANT_FALLBACK.get(ctx.request.variant) not in values:
-            return False
+        if key == "variant" and ctx.request.variant not in values:
+            # A size borrows its fallback's conditions only when the theme has none of its own.
+            fallback = VARIANT_FALLBACK.get(ctx.request.variant)
+            if fallback is None or fallback not in values or _names_variant(ctx.theme.layers, ctx.request.variant):
+                return False
         if key not in ("asset", "no_asset", "slot", "no_slot", "variant"):
             raise ThemeError(f"when_unknown:{key}")
     return True
