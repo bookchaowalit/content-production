@@ -236,9 +236,10 @@ def _flatten(source: Path, expected_sha256: str, target: Path) -> bool:
     if _sha256_bytes(data) != expected_sha256:
         raise SceneInputError("source_changed", "a frame changed while the job was running")
     with Image.open(io.BytesIO(data)) as image:
-        if image.mode == "RGBA":
+        # RGBA, or RGB with a tRNS colour key (``info["transparency"]``), carries transparency.
+        if image.mode == "RGBA" or "transparency" in image.info:
             canvas = Image.new("RGBA", image.size, (*FLATTEN_COLOR, 255))
-            canvas.alpha_composite(image)
+            canvas.alpha_composite(image.convert("RGBA"))
             canvas.convert("RGB").save(target, format="PNG")
             return True
         image.convert("RGB").save(target, format="PNG")
@@ -417,14 +418,16 @@ def _encode(
                 receipts.mkdir(exist_ok=True)
                 if receipts.is_symlink() or not receipts.is_dir():
                     raise SceneInputError("unsafe_output_path", "receipt path is unsafe")
+                # Receipt first: a job folder must never be visible without its receipt. A receipt
+                # whose folder never appears is harmless; the next run encodes and rewrites it.
+                try:
+                    _write_atomic(receipt_path, json.dumps({"schema_version": RECEIPT_SCHEMA, "fingerprint": fingerprint, "hashes": hashes}, sort_keys=True).encode("utf-8"))
+                except OSError as error:
+                    raise SceneInputError("publication_failed", "turntable receipt could not be written") from error
                 try:
                     os.rename(job_dir, final_dir)
                 except OSError as error:
-                    if final_dir.exists():
-                        hashes = _verify_replay(final_dir, receipt_path, fingerprint)
-                        return EncodeResult("accepted", fingerprint, final_dir, final_dir / artifact_name, hashes, replay=True)
                     raise SceneInputError("publication_failed", "turntable could not be published") from error
-                _write_atomic(receipt_path, json.dumps({"schema_version": RECEIPT_SCHEMA, "fingerprint": fingerprint, "hashes": hashes}, sort_keys=True).encode("utf-8"))
                 publish.outputs = sorted(hashes)
         finally:
             shutil.rmtree(staging, ignore_errors=True)

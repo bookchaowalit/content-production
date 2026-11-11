@@ -280,3 +280,34 @@ def test_frame_hash_comes_from_the_validated_bytes(tmp_path: Path, monkeypatch: 
     expected = hashlib.sha256(frame.read_bytes()).hexdigest()
     monkeypatch.setattr(encode, "_sha256_file", lambda _path: pytest.fail("frames must not be re-read for hashing"))
     assert encode._load_frames([frame])[0][1] == expected
+
+
+def test_rgb_png_with_a_trns_colour_key_is_flattened_onto_white(tmp_path: Path) -> None:
+    frame = tmp_path / "keyed.png"
+    image = Image.new("RGB", (8, 8), (0, 255, 0))
+    image.putpixel((0, 0), (10, 20, 30))
+    image.save(frame, format="PNG", transparency=(0, 255, 0))
+    _path, digest, _size, mode = encode._load_frames([frame])[0]
+    assert mode == "RGB"
+    target = tmp_path / "flat.png"
+    assert encode._flatten(frame, digest, target) is True
+    with Image.open(target) as flat:
+        assert flat.mode == "RGB" and flat.getpixel((4, 4)) == (255, 255, 255) and flat.getpixel((0, 0)) == (10, 20, 30)
+
+
+def test_failed_receipt_write_leaves_no_job_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ffmpeg = ffmpeg_executable()
+    frames = write_frames(tmp_path / "f", 2)
+    output_root = tmp_path / "out"
+
+    def broken_write(_path: Path, _data: bytes) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(encode, "_write_atomic", broken_write)
+    with pytest.raises(SceneInputError) as error:
+        encode.encode_turntable(frames, output_root, preset="turntable-gif.v1", ffmpeg_bin=ffmpeg)
+    assert error.value.code == "publication_failed"
+    assert not [entry for entry in output_root.iterdir() if len(entry.name) == 64]
+    monkeypatch.undo()
+    result = encode.encode_turntable(frames, output_root, preset="turntable-gif.v1", ffmpeg_bin=ffmpeg)
+    assert result.status == "accepted" and not result.replay
