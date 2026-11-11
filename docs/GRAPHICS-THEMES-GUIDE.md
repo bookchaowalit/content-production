@@ -498,6 +498,21 @@ AI art director (shadow) ได้ 9/10 งานใน held-out คะแนน
    book-production graphics export --manifest work/manifest-<id>.json --output print --scale 3 --dpi 300
    ```
 
+   งานส่งโรงพิมพ์ขนาด A4: ทำภาพด้วย `--variant a4` (ใช้ layout เดียวกับ portrait) แล้ว export
+   ที่ `--scale 2 --dpi 300` จะได้ 2480×3508 px พอดี A4 ใส่ขอบตัดตก, crop marks และแปลง CMYK
+   ด้วยโปรไฟล์ ICC ที่โรงพิมพ์ให้มา (เช่น ISO Coated v2, PSO Uncoated; ระบบไม่มีโปรไฟล์ติดมาให้):
+
+   ```bash
+   book-production graphics make --theme promo_sale --variant a4 --set headline=ลดปลายปี --set discount=50% \
+     --output work --idempotency-key flyer-a4
+   book-production graphics export --manifest work/manifest-<id>.json --output press --scale 2 --dpi 300 \
+     --bleed-mm 3 --crop-marks --cmyk-icc ~/profiles/ISOcoated_v2_eci.icc
+   ```
+
+   ได้ไฟล์ `<ชื่อ>-press-b3mm-marks-cmyk<hash>.pdf` ที่มี TrimBox/BleedBox ตรงขนาด ขอบตัดตกเป็นภาพสะท้อน
+   ของขอบงาน และฝังโปรไฟล์เป็น output intent ระบบยังไม่ได้ตรวจตามมาตรฐาน PDF/X จึงควรให้โรงพิมพ์
+   preflight ก่อนพิมพ์จริง
+
 ถ้าแก้ใน Affinity แล้ว ค่าจะไม่ย้อนกลับมาที่ระบบ ควรปรับผ่าน patch/AI ให้เสร็จก่อน แล้วค่อยเก็บงานละเอียดใน Affinity
 
 ## 7. สร้างธีมใหม่

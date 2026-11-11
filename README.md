@@ -516,7 +516,11 @@ output root:
 `graphics export` traces the print export the same way in its output folder
 (Figma PNG at `scale`x, then Photoshop Image Size at the DPI without resample
 and Save a Copy as PDF); use one output folder per export. Exact replays write
-nothing. Traces hold hashes, ids, sizes, and counts only, never content text.
+nothing. With `--bleed-mm`, `--crop-marks`, or `--cmyk-icc <printer profile>` the PDF
+is a press PDF (`graphics-press-export.v1`: TrimBox/BleedBox/MediaBox, mirrored bleed,
+crop marks, CMYK with the profile as output intent) named
+`<item>-press-<settings>.pdf`, and the export manifest records the settings under
+`print`. The `a4` size (1240×1754) exports to exactly A4 at `--scale 2 --dpi 300`. Traces hold hashes, ids, sizes, and counts only, never content text.
 
 ```bash
 python -m book_production_platform.production_trace history --root .runtime/graphics/output

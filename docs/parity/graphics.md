@@ -15,23 +15,25 @@ Status: **have** = implemented and tested; **partial** = a subset works;
 
 | Capability | Figma / Canva / Photoshop | Engine status | Priority | Notes |
 |---|---|---|---|---|
-| Fixed canvas presets | Frame presets / Custom size / New document | have | — | `square` 1080×1080, `portrait` 1080×1350, `story` 1080×1920 |
-| Arbitrary canvas size, landscape 16:9, A4/print sizes | yes | missing | P1 | Template coordinates are authored for a 1080 px width; each new aspect needs its own layout table |
+| Fixed canvas presets | Frame presets / Custom size / New document | have | — | `square` 1080×1080, `portrait` 1080×1350, `story` 1080×1920, `landscape` 1920×1080 |
+| A4 print size | Canva/Photoshop A4 | **have (new)** | — | `a4` 1240×1754 = A4 at 150 ppi; `export --scale 2 --dpi 300` gives 2480×3508. The 11 `graphic-ir.v2` themes (laid out in W/H/MIN) come in A4 and use the portrait arrangement unless they declare an `a4` entry; the three `graphic-ir.v1` themes (`quote_card`, `product_card`, `announcement`, fixed 1080 px coordinates) do not. Not offered by `compose`, campaigns, or the V1B brief adapter yet |
+| Arbitrary canvas size, A3/A5/US Letter | yes | missing | P2 | each size needs a fallback or its own layout entries |
 | Resize one design to several sizes | Canva Magic Resize, Figma duplicate frame | **have (new)** | — | `"variants": [...]` on a batch item expands to one item per registered size (`expand_variants`) |
-| Templates | thousands | partial (3) | P1 | `quote_card`, `product_card`, `announcement`; new templates also need V1B registry + eval updates |
+| Templates | thousands | partial (14) | P3 | data-defined themes (`graphic-theme.v1`); `book-production graphics themes` lists them |
 | Brand kit colours | Brand Kit / Styles | have | — | primary, accent, foreground, background tokens |
 | Brand fonts | Brand Kit fonts | partial | P2 | one custom TTF/OTF per item via `font_ref`; no per-layer font roles |
-| Logo slot | Brand Kit logo | missing | P1 | needs an image slot per template |
+| Logo slot | Brand Kit logo | partial | P2 | `graphics compose --logo` and campaign plans place the logo in a clear corner (with a plate when contrast is low); fixed themes have no logo slot |
 | Text: family, size, colour, alignment | yes | have | — | mirrored 1:1 in the Figma guide |
 | Text auto-fit (shrink to fit, never truncate) | Canva auto-resize, Figma plugins | have | — | `fit_text` steps the size down to a template minimum, rejects overflow |
 | Thai cluster-safe line breaking | partial in all three | have | — | vowels/tone marks never start a line; guide types the engine's exact lines |
-| Font weight / italic | yes | missing | P1 | renderer writes Regular only; a bold headline is the most-requested gap |
-| Line height / letter spacing control | yes | partial | P2 | fixed `font_size × 1.2` line height, 0 letter spacing |
+| Font weight | yes | have | — | `normal` / `bold` / `black` per text node and per styled run |
+| Italic | yes | missing | P3 | |
+| Line height / letter spacing control | yes | have | — | `line_height` and `letter_spacing` per text node |
 | Rich text (mixed styles in one box) | yes | missing | P3 | |
-| Shapes | rect, ellipse, polygon, vector | partial | P2 | `rect` (fill + stroke) and `line`; no corner radius, ellipse, gradient, shadow |
+| Shapes | rect, ellipse, polygon, vector | have | — | `graphic-ir.v2`: rect with corner radius, ellipse, path, line, linear/radial gradients |
 | Image placement | place / frame | have | — | contain-fit (`preserveAspectRatio meet`), local files only, unsafe SVG rejected |
-| Image crop/cover, masks, filters | yes | missing | P2 | |
-| Background removal | Canva/Photoshop AI | — | — | generative/AI, outside the deterministic path |
+| Image crop/cover, masks, filters | yes | have | — | `fit: cover/contain`, focus point, cut-out, shadow, filters (image effects) |
+| Background removal | Canva/Photoshop AI | partial | — | optional `cutout` extra (rembg on CPU) or the built-in plain cut-out |
 | Editable output with named layers | `.fig`, `.psd` | have | — | SVG with node ids; the manual guide rebuilds the same layer tree in Figma |
 | Groups / components / auto layout | yes | missing | P3 | |
 | Export PNG 1x | yes | have | — | per item |
@@ -39,7 +41,8 @@ Status: **have** = implemented and tested; **partial** = a subset works;
 | Export SVG | Figma/Photoshop | have | — | the batch source of truth |
 | Export PDF | yes | partial | P2 | raster PDF at a chosen DPI (`graphics export --dpi`); no vector PDF |
 | Export JPEG / WebP | yes | missing | P2 | |
-| Print: CMYK, bleed, crop marks | Photoshop / Canva Print | missing | P1 | needed before offering printed deliverables |
+| Print: bleed, crop marks, CMYK | Photoshop / InDesign / Canva Print | **have (new)** | — | `graphics export --bleed-mm 3 --crop-marks --cmyk-icc <printer profile>`: TrimBox/BleedBox/MediaBox, mirrored bleed, registration-colour crop marks, sRGB→CMYK (relative colorimetric + BPC) with the profile as output intent. No profile is bundled; not validated as PDF/X (`pdfx_claimed: false`) |
+| Spot colours, overprint, PDF/X-1a/X-4 validation | InDesign / Acrobat Preflight | missing | P2 | needs a preflight tool (veraPDF or Acrobat) in the loop |
 | Accessibility contrast check | plugins / Canva checker | **have (new, advisory)** | — | WCAG AA per text layer in the trace QA step and the guide checks; never rejects |
 | Bulk create from data | Canva Bulk Create, Figma plugins | have | — | batch JSON / HTTP API, up to 100 items, idempotent replay |
 | History, provenance, redo by hand | version history | **have (new)** | — | `trace.json`, `history.jsonl`, `MANUAL-STEPS.md` (Figma steps, Canva/Photoshop alternatives) |
@@ -66,13 +69,32 @@ PDF/@Nx print export, text auto-fit.
 
 ## Roadmap (prioritised)
 
-1. P1 — Bold/weight per text role (renderer `font-weight`, guide, golden review).
-2. P1 — Landscape 16:9 and A4 variants with their own layout tables.
-3. P1 — Logo slot in the brand kit and templates.
-4. P1 — Print profile: bleed, crop marks, CMYK PDF (needs a colour-managed path).
-5. P2 — JPEG/WebP export; vector PDF via the browser's print-to-PDF.
-6. P2 — Rounded corners, ellipse, gradient fills; image cover/crop.
-7. P3 — More templates (each needs V1B registry and eval cases).
+Done since the first matrix: font weight, landscape 16:9, logo placement (compose and
+campaigns), shapes and gradients, image effects, 14 themes, A4, and the press PDF
+(bleed, crop marks, CMYK).
+
+1. P2 — A4 in `compose`/campaigns (per-archetype tables), the V1B brief adapter (needs eval
+   cases), and the three v1 themes (convert their pixel coordinates to W/H expressions).
+2. P2 — Preflight the press PDF with veraPDF or Acrobat and claim PDF/X only when it passes.
+3. P2 — Logo slot in the fixed themes.
+4. P2 — JPEG/WebP export; vector PDF via the browser's print-to-PDF.
+5. P2 — More print sizes (A3, A5, US Letter) through the same fallback.
+6. P3 — Italic, rich text beyond styled runs.
+
+## A4 and press PDF (this pass)
+
+- `a4` is a registered size. `parse_theme` adds it to every `graphic-ir.v2` theme that has
+  `portrait` (v1 themes use fixed pixels and would sit off-centre on the wider page);
+  a `by_variant` table or `when.variant` without an `a4` entry uses the portrait one.
+  The 11 A4 themes compile and pass QA, every text anchor sits at the same fraction of the
+  width as in portrait (test), and a visual check matched portrait. Campaign and compose
+  `all` stay on the screen sizes.
+  `make --variant all` still means the screen sizes; ask for `--variant a4` by name.
+- `print_pdf.press_pdf` writes the PDF itself so it can set the print boxes. Bleed is
+  mirrored from the artwork edge (the SVG has nothing beyond its canvas). CMYK needs the
+  printer's ICC profile (`--cmyk-icc`); an RGB or unreadable profile is refused.
+- Tests: `tests/graphics/test_print_and_a4.py` (browser-free; the real CMYK conversion runs
+  when a CMYK profile is found or `GRAPHICS_TEST_CMYK_ICC` is set).
 
 ## Runtime notes
 

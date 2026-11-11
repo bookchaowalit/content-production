@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # compiler rejects an unknown id. The three original templates keep their ids.
 TemplateId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{1,47}$")]
 LEGACY_TEMPLATE_IDS = ("quote_card", "product_card", "announcement")
-VariantId = Literal["square", "portrait", "story", "landscape"]
+VariantId = Literal["square", "portrait", "story", "landscape", "a4"]
 OverflowPolicy = Literal["wrap", "reject"]
 TextAlign = Literal["left", "center", "right"]
 ShapeKind = Literal["rect", "line", "ellipse", "path"]
