@@ -32,6 +32,11 @@ from .qa import contrast_report
 FIGMA_VERSION = "Design (desktop/web, 2026)"
 RENDER_LINE_HEIGHT = 1.2  # render_svg: tspan dy = font_size * 1.2
 BUILTIN_FONT_FAMILY = "Arial"  # render_svg: font-family="Arial, sans-serif"
+# Thai glyphs of the builtin font fall back to this family in the golden render environment
+# (verified in Figma 2026-11-12: docs/reverse/graphics-v1a/VERIFY.md).
+THAI_FALLBACK_FAMILY = "Sarabun"
+# Figma places a text box's first baseline lower than SVG <tspan> by up to ~0.1 x font size.
+FIGMA_TEXT_Y_TOLERANCE = 0.1
 _ALIGN = {"left": "Align left", "center": "Align center", "right": "Align right"}
 
 
@@ -402,7 +407,11 @@ def build_figma_guide(
         setup=[
             "เปิด Figma ▸ `Drafts ▸ + New ▸ Design file`",
             "ตั้งหน่วยเป็นพิกเซล (Figma ใช้ px เสมอ); ค่า X/Y นับจากมุมซ้ายบนของ Frame",
-            "ถ้าข้อความเป็นภาษาไทยและใช้ Arial ให้ตรวจว่าเครื่องมีฟอนต์ไทย fallback (เหมือน browser ของเครื่องมือ) หรือใช้ไฟล์ฟอนต์เดียวกับ `font_ref`",
+            (
+                "ฟอนต์ Arial: Figma (เว็บ) ไม่มี Arial และ Arial ไม่มีอักษรไทย; ข้อความไทยใน golden ของเครื่องมือแสดงด้วยฟอนต์ fallback "
+                f"`{THAI_FALLBACK_FAMILY}` จึงให้เลือก `{THAI_FALLBACK_FAMILY} / Regular` แทน Arial ในทุกขั้นที่บอก Arial "
+                "(ถ้า `font_ref` เป็นไฟล์ฟอนต์ ให้ติดตั้งไฟล์นั้นแทน)"
+            ),
             "Canva: `Create a design ▸ Custom size` ใส่ W×H px เท่ากัน แล้วใช้ Elements ▸ Shapes / Text ตามตารางเดียวกัน",
             "Photoshop: `File ▸ New…` ใส่ Width/Height เป็น Pixels, Resolution 72 ppi, RGB Color; สร้าง Shape/Type layer ตามตาราง และ `File ▸ Export ▸ Export As… ▸ PNG`",
         ],
@@ -447,7 +456,9 @@ def build_figma_guide(
                 f"`{name}` ▸ `{row['node_id']}` contrast {row['ratio']}:1 บน {row['backdrop_node']} "
                 f"(WCAG AA ต้อง ≥ {row['required']}:1) — {verdict}"
             )
-        checks.append(f"`{name}`: วาง `{name}.png` ของเครื่องมือทับที่ opacity 50% แล้วขอบข้อความ/สีต้องซ้อนกันพอดี")
+        checks.append(f"`{name}`: วาง `{name}.png` ของเครื่องมือทับที่ opacity 50% แล้วรูปทรงและสีต้องซ้อนกันพอดี; "
+                      f"ข้อความต้องตรงแนวนอน (±2 px) และขนาดเท่ากัน ส่วนแนวตั้งต่างได้ไม่เกิน {FIGMA_TEXT_Y_TOLERANCE:g} × font size "
+                      "(Figma วาง baseline บรรทัดแรกต่ำกว่า SVG เล็กน้อย)")
     guide.checks = checks
     return guide
 
