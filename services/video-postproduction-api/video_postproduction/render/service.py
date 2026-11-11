@@ -11,8 +11,8 @@ from production_trace import MANUAL_FILENAME, TRACE_FILENAME, TraceRecorder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..captions.ass import render_ass
-from ..captions.cues import CaptionCue
+from ..captions.ass import render_ass, render_ass_cues
+from ..captions.cues import CaptionCue, render_editor_srt
 from ..captions.srt import render_srt
 from ..edl import EDLDocument, validate_edl
 from ..jobs.queue import JobQueue
@@ -104,12 +104,33 @@ class RenderService:
 
     @staticmethod
     def _burned_caption_file(
-        edl: EDLDocument, normalized: NormalizedTranscript, *, directory: Path, trace: TraceRecorder
+        edl: EDLDocument,
+        normalized: NormalizedTranscript,
+        *,
+        directory: Path,
+        trace: TraceRecorder,
+        cues: list[CaptionCue] | None = None,
     ) -> Path:
-        """Write the burned-in caption file into the job directory (it is a job artifact)."""
+        """Write the burned-in caption file into the job directory (it is a job artifact).
+
+        A multi-clip timeline burns the same record-time cues as ``captions.srt``.
+        """
 
         segment = edl.timeline[0]
         suffix = ".ass" if segment.captions.format == "ass" else ".srt"
+        if len(edl.timeline) > 1:
+            with trace.step(
+                "captions", "build_burn_in_captions", format=suffix[1:], preset=segment.captions.preset,
+                clips=len(edl.timeline), cues=len(cues or []),
+            ) as step:
+                content = (
+                    render_ass_cues(cues or [], segment.captions.preset, output_size=(edl.output.width, edl.output.height))
+                    if suffix == ".ass"
+                    else render_editor_srt(cues or [])
+                )
+                path = write_text(directory / f"captions-burned{suffix}", content)
+                step.outputs = [path.name]
+            return path
         with trace.step(
             "captions",
             "build_burn_in_captions",
@@ -187,18 +208,25 @@ class RenderService:
             if edl.timeline[0].captions.enabled:
                 if normalized is None:
                     raise RenderProcessError("transcript_not_ready", "The transcript is not ready for captions")
-                caption_path = self._burned_caption_file(edl, normalized, directory=location.job_dir, trace=trace)
+                caption_path = self._burned_caption_file(
+                    edl, normalized, directory=location.job_dir, trace=trace, cues=cues
+                )
                 trace.artifact(caption_path, media_type=media_type_for(caption_path.name), role="captions")
                 files.append(caption_path.name)
             input_path = self.storage.local_path(asset.storage_key)
             with trace.step("render", "ffmpeg_render") as render_step:
-                argv = build_ffmpeg_argv(edl, input_path=input_path, output_path=temp_output, caption_path=caption_path)
+                argv = build_ffmpeg_argv(
+                    edl, input_path=input_path, output_path=temp_output, caption_path=caption_path, plan=plan
+                )
                 render_step.params = summarize_ffmpeg_argv(argv)
+                # The plan is passed only for multi-clip timelines (single clips keep the original contract).
+                extra = {"plan": plan} if len(edl.timeline) > 1 else {}
                 artifact = self.engine.render(
                     edl,
                     input_path=input_path,
                     output_path=temp_output,
                     caption_path=caption_path,
+                    **extra,
                 )
                 render_step.outputs = [output_name]
             qa = qa_summary(

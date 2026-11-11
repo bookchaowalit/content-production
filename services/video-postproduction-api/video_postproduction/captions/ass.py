@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
+from typing import Protocol
 
 from pythainlp.tokenize import word_tokenize
 
@@ -32,6 +34,15 @@ _THAI_COMBINING = frozenset(chr(c) for c in (0x0E31, *range(0x0E34, 0x0E3B), *ra
 # Thai leading vowels are written before their consonant and must not end a line.
 _THAI_LEADING_VOWELS = frozenset("เแโใไ")
 _logger = logging.getLogger(__name__)
+
+
+class CueLike(Protocol):
+    @property
+    def start(self) -> float: ...
+    @property
+    def end(self) -> float: ...
+    @property
+    def lines(self) -> tuple[str, ...]: ...
 
 
 def _columns(text: str) -> int:
@@ -162,6 +173,41 @@ def _relative_bounds(
 
 def line_columns_for_width(width: int) -> int:
     return max(12, (width - 2 * _HORIZONTAL_MARGIN) // _COLUMN_WIDTH_PX)
+
+
+def _ass_header(preset: str, output_size: tuple[int, int]) -> list[str]:
+    font, font_size = PRESETS.get(preset, PRESETS["minimal"])
+    width, height = output_size
+    margin_bottom = round(120 * height / _DEFAULT_OUTPUT_SIZE[1])
+    return [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {width}",
+        f"PlayResY: {height}",
+        "WrapStyle: 2",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        f"Style: Default,{font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,4,1,2,{_HORIZONTAL_MARGIN},{_HORIZONTAL_MARGIN},{margin_bottom},1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+
+
+def render_ass_cues(
+    cues: Sequence[CueLike],
+    preset: str = "minimal",
+    *,
+    output_size: tuple[int, int] = _DEFAULT_OUTPUT_SIZE,
+) -> str:
+    """ASS from already wrapped record-time cues (multi-clip timelines); same style as ``render_ass``."""
+
+    lines = _ass_header(preset, output_size)
+    for cue in cues:
+        wrapped = "\\N".join(escape_ass_text(line) for line in cue.lines)
+        lines.append(f"Dialogue: 0,{format_ass_time(cue.start)},{format_ass_time(cue.end)},Default,,0,0,0,,{wrapped}")
+    return "\n".join(lines) + "\n"
 
 
 def render_ass(

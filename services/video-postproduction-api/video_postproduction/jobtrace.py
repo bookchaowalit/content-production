@@ -202,7 +202,21 @@ def editor_cues(
 ) -> list[CaptionCue] | None:
     if plan.captions is None or normalized is None:
         return None
-    windows = [ClipWindow(clip.source_start, clip.source_end, clip.record_start) for clip in plan.clips]
+    if len(plan.clips) == 1:
+        clip = plan.clips[0]
+        windows = [ClipWindow(clip.source_start, clip.source_end, clip.record_start)]
+    else:
+        # Several clips are cut and laid end to end on frames (render concat, NLE timeline),
+        # so each cue window uses the clip's frame boundaries and frame-based record start.
+        rate = plan.rate
+        windows = [
+            ClipWindow(
+                rate.frame_seconds(clip.source_in_frame),
+                rate.frame_seconds(clip.source_out_frame),
+                rate.frame_seconds(clip.record_in_frame),
+            )
+            for clip in plan.clips
+        ]
     return timeline_cues(normalized, windows, wrap_columns=plan.captions.wrap_columns)
 
 
