@@ -30,3 +30,20 @@ def test_line_item_decimal_schema_is_pinned_independent_of_pydantic():
             {"type": "number"},
             {"type": "string", "pattern": DECIMAL_STRING_PATTERN},
         ]
+
+
+def test_withholding_rate_is_optional_and_left_out_of_dumps_when_unset():
+    plain = DocumentRequest.model_validate(SAMPLE_REQUEST)
+    assert "withholding_tax_rate" not in plain.model_dump(mode="json")
+    with_rate = DocumentRequest.model_validate({**SAMPLE_REQUEST, "withholding_tax_rate": "3"})
+    assert with_rate.withholding_tax_rate == Decimal(3)
+    assert with_rate.model_dump(mode="json")["withholding_tax_rate"] == "3"
+
+
+def test_withholding_rate_outside_thai_rates_is_an_issue():
+    from document_ir import validate_request
+
+    for rate in ("0", "15.5"):
+        codes = [issue.code for issue in validate_request({**SAMPLE_REQUEST, "withholding_tax_rate": rate})]
+        assert "withholding_tax_rate_out_of_range" in codes
+    assert validate_request({**SAMPLE_REQUEST, "withholding_tax_rate": "15"}) == []

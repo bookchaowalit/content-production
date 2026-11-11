@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from pydantic import ValidationError
@@ -11,6 +12,8 @@ from .models import DocumentRequest, ValidationIssue
 
 SUPPORTED_CURRENCIES = frozenset({"THB", "USD", "EUR"})
 MAX_LINE_ITEMS = 100
+# Highest Thai withholding tax rate (1, 2, 3, 5, 10 and 15 % are in use).
+MAX_WITHHOLDING_RATE = Decimal(15)
 
 
 def _issue(code: str, path: str, message: str) -> ValidationIssue:
@@ -50,6 +53,10 @@ def validate_request(request: Mapping[str, Any] | DocumentRequest) -> list[Valid
         issues.append(_issue("line_item_limit_exceeded", "line_items", "line_items cannot exceed 100 items"))
     if not parsed.line_items:
         issues.append(_issue("line_items_required", "line_items", "at least one line item is required"))
+
+    rate = parsed.withholding_tax_rate
+    if rate is not None and not Decimal(0) < rate <= MAX_WITHHOLDING_RATE:
+        issues.append(_issue("withholding_tax_rate_out_of_range", "withholding_tax_rate", "withholding_tax_rate must be above 0 and at most 15"))
 
     for index, item in enumerate(parsed.line_items):
         prefix = f"line_items[{index}]"

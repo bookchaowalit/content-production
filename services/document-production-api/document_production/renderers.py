@@ -6,6 +6,7 @@ import hashlib
 import os
 import tempfile
 from collections.abc import Mapping
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -15,7 +16,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches
+from docx.shared import Inches, Mm
 from pypdf import PdfReader
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -23,6 +24,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfbase.ttfonts import TTFError, TTFont
 from reportlab.platypus import (
     Image,
@@ -33,8 +35,14 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from .thai_text import baht_text, has_thai, wrap_lines
+
 SUPPORTED_TEMPLATES = frozenset({"invoice@1", "quotation@1", "proposal@1", "transcript@1", "report@1", "spec-sheet@1"})
 PDF_FONT_NAME = "DocumentProductionUnicode"
+DOCX_SIDE_MARGIN_INCHES = 1.25
+# Font the DOCX "Normal" style names for Latin and complex (Thai) script; the
+# Word guide tells the person to set the same one. Headings inherit the Thai face.
+DOCX_FONT = "Sarabun"
 
 
 class RenderError(RuntimeError):
@@ -95,6 +103,21 @@ def _footer_label(ir: DocumentIR) -> str:
     return f"{ir.document_id} · หน้า " if ir.locale.lower().startswith("th") else f"{ir.document_id} · Page "
 
 
+def amount_in_words_line(ir: DocumentIR) -> str | None:
+    """``grand_total (ตัวอักษร): (…บาทถ้วน)`` for Thai-locale THB documents with totals, else ``None``."""
+
+    grand_total = ir.derived_totals.get("grand_total")
+    if ir.currency != "THB" or not ir.locale.lower().startswith("th") or grand_total is None:
+        return None
+    try:
+        amount = Decimal(grand_total)
+    except InvalidOperation:
+        return None
+    if amount < 0:
+        return None
+    return f"grand_total (ตัวอักษร): ({baht_text(amount)})"
+
+
 def _add_docx_page_footer(document: Any, ir: DocumentIR) -> None:
     """Add ``<document_id> · Page <PAGE field>`` to the DOCX footer (Insert ▸ Page Number in Word)."""
 
@@ -114,13 +137,25 @@ def _add_docx_page_footer(document: Any, ir: DocumentIR) -> None:
             run._r.append(field)
 
 
+def _set_docx_font(document: Any) -> None:
+    normal = document.styles["Normal"]
+    normal.font.name = DOCX_FONT
+    fonts = normal.element.get_or_add_rPr().get_or_add_rFonts()
+    fonts.set(qn("w:cs"), DOCX_FONT)
+
+
 def _render_docx(ir: DocumentIR, output_dir: Path) -> ArtifactRef:
     temporary, final = _atomic_path(output_dir, "document.docx")
     try:
         document = Document()
         section = document.sections[0]
+        # A4 like the PDF (python-docx's default template is US Letter).
+        section.page_width = Mm(210)
+        section.page_height = Mm(297)
         section.top_margin = Inches(0.7)
         section.bottom_margin = Inches(0.7)
+        section.left_margin = section.right_margin = Inches(DOCX_SIDE_MARGIN_INCHES)
+        _set_docx_font(document)
         _add_docx_page_footer(document, ir)
         document.add_heading(ir.title, level=0)
         for line in _header_lines(ir):
@@ -148,6 +183,9 @@ def _render_docx(ir: DocumentIR, output_dir: Path) -> ArtifactRef:
             document.add_heading("Totals", level=1)
             for name, value in ir.derived_totals.items():
                 document.add_paragraph(f"{name}: {value} {ir.currency}")
+            words = amount_in_words_line(ir)
+            if words:
+                document.add_paragraph(words)
         document.save(str(temporary))
         os.replace(temporary, final)
     except Exception as exc:
@@ -216,6 +254,23 @@ def _pdf_value(value: str, font_name: str) -> str:
     return escape(value)
 
 
+# Text width inside the page frame (A4 minus 15 mm margins and the 6 pt frame
+# padding each side) and inside a table cell (6 pt cell padding each side).
+PDF_FRAME_WIDTH = A4[0] - 30 * mm - 12
+PDF_CELL_PADDING = 12
+
+
+def _pdf_text(value: str, font_name: str, font_size: float, width: float | None) -> str:
+    """Escape ``value``; Thai text is broken into lines here so no Thai cluster is split (spec D3)."""
+
+    text = _pdf_value(value, font_name)
+    if width is None or font_name == "Helvetica" or not has_thai(value):
+        return text
+    # A hair under the width: ReportLab must never need to re-wrap a line we made.
+    lines = wrap_lines(value, width - 0.5, lambda line: stringWidth(line, font_name, font_size))
+    return "<br/>".join(escape(line) for line in lines)
+
+
 def _render_pdf(ir: DocumentIR, output_dir: Path) -> ArtifactRef:
     temporary, final = _atomic_path(output_dir, "document.pdf")
     try:
@@ -223,18 +278,29 @@ def _render_pdf(ir: DocumentIR, output_dir: Path) -> ArtifactRef:
         styles = getSampleStyleSheet()
         body = ParagraphStyle("DocumentBody", parent=styles["BodyText"], fontName=font_name, fontSize=10, leading=14, alignment=TA_LEFT)
         heading = ParagraphStyle("DocumentHeading", parent=styles["Heading1"], fontName=font_name, fontSize=14, leading=18)
-        story = [Paragraph(_pdf_value(ir.title, font_name), heading), Spacer(1, 4 * mm)]
+        frame = PDF_FRAME_WIDTH
+
+        def text(value: str, style: ParagraphStyle, width: float | None = frame) -> Paragraph:
+            return Paragraph(_pdf_text(value, font_name, style.fontSize, width), style)
+
+        story: list[Any] = [text(ir.title, heading), Spacer(1, 4 * mm)]
         for line in _header_lines(ir):
-            story.append(Paragraph(_pdf_value(line, font_name), body))
+            story.append(text(line, body))
         for item_section in ir.sections:
             story.append(Spacer(1, 4 * mm))
-            story.append(Paragraph(_pdf_value(item_section.heading, font_name), heading))
+            story.append(text(item_section.heading, heading))
             for paragraph in item_section.paragraphs:
-                story.append(Paragraph(_pdf_value(paragraph, font_name), body))
+                story.append(text(paragraph, body))
             for item_table in item_section.tables:
-                data = [[Paragraph(_pdf_value(value, font_name), body) for value in item_table.headers]]
-                data.extend([[Paragraph(_pdf_value(value, font_name), body) for value in row.cells] for row in item_table.rows])
-                table = Table(data, repeatRows=1, colWidths=_pdf_column_widths(ir, len(item_table.headers)))
+                widths = _pdf_column_widths(ir, len(item_table.headers))
+
+                def cell(index: int, value: str, widths: list[float] = widths) -> Paragraph:
+                    width = widths[index] - PDF_CELL_PADDING if index < len(widths) else None
+                    return text(value, body, width)
+
+                data = [[cell(index, value) for index, value in enumerate(item_table.headers)]]
+                data.extend([[cell(index, value) for index, value in enumerate(row.cells)] for row in item_table.rows])
+                table = Table(data, repeatRows=1, colWidths=widths)
                 table.setStyle(TableStyle([
                     ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
                     ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
@@ -246,12 +312,15 @@ def _render_pdf(ir: DocumentIR, output_dir: Path) -> ArtifactRef:
                 story.append(Spacer(1, 3 * mm))
                 story.append(Image(_verified_image(image), width=170 * mm, height=120 * mm, kind="proportional"))
                 if image.caption:
-                    story.append(Paragraph(_pdf_value(image.caption, font_name), body))
+                    story.append(text(image.caption, body))
         if ir.derived_totals:
             story.append(Spacer(1, 4 * mm))
-            story.append(Paragraph(_pdf_value("Totals", font_name), heading))
+            story.append(text("Totals", heading))
             for name, value in ir.derived_totals.items():
-                story.append(Paragraph(_pdf_value(f"{name}: {value} {ir.currency}", font_name), body))
+                story.append(text(f"{name}: {value} {ir.currency}", body))
+            words = amount_in_words_line(ir)
+            if words:
+                story.append(text(words, body))
 
         document = SimpleDocTemplate(str(temporary), pagesize=A4, rightMargin=15 * mm, leftMargin=15 * mm, topMargin=15 * mm, bottomMargin=15 * mm)
         label = _pdf_value(_footer_label(ir), font_name)
