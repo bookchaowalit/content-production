@@ -29,7 +29,7 @@ from .composer import LOGO_CORNERS
 from .layout import parse_markup
 from .layouts import TEXT_SLOTS
 from .provider_config import ProviderConfig, ProviderConfigError, parse_provider_config
-from .themes import VARIANT_SIZES
+from .themes import SOCIAL_VARIANTS
 
 ADAPTER_VERSION = "graphics-campaign-brief.v1"
 PHOTO_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
@@ -141,7 +141,7 @@ def plan_problems(parsed: Mapping[str, Any], brief: str, photos: list[str]) -> l
     if style and style not in load_art_styles():
         problems.append(f"art_style_unknown:{style}")
     variants = parsed.get("variants") or ["portrait"]
-    if not isinstance(variants, list) or any(v not in VARIANT_SIZES for v in variants):
+    if not isinstance(variants, list) or any(v not in SOCIAL_VARIANTS for v in variants):  # what load_campaign accepts
         problems.append(f"variants_invalid:{variants}")
     logo = parsed.get("logo")
     if logo and logo not in photos:

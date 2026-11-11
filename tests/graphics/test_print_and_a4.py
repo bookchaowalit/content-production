@@ -127,14 +127,14 @@ def test_make_all_means_the_screen_sizes_and_a4_is_asked_for_by_name(tmp_path: P
         raise SystemExit(0)
 
     monkeypatch.setattr("book_production_platform.graphics_production.cli.run_batch", fake_run_batch)
-    for variants in (["all"], ["a4"]):
+    for variants in (["all"], ["a4"], ["all", "a4", "square"]):
         args = ["make", "--theme", "bold_editorial", "--set", "headline=Hi", "--output", str(tmp_path),
                 "--idempotency-key", "k"]
         for variant in variants:
             args += ["--variant", variant]
         with pytest.raises(SystemExit):
             main(args)
-    assert captured == [["square", "portrait", "story", "landscape"], ["a4"]]
+    assert captured == [["square", "portrait", "story", "landscape"], ["a4"], ["square", "portrait", "story", "landscape", "a4"]]
 
 
 def test_expand_variants_gives_a4_its_canvas() -> None:
@@ -338,3 +338,14 @@ def test_campaign_all_means_the_screen_sizes(tmp_path: Path) -> None:
     assert load_campaign(plan, tmp_path).variants == list(SOCIAL_VARIANTS)
     with pytest.raises(CampaignError, match="unknown_variant"):
         load_campaign({**plan, "variants": ["a4"]}, tmp_path)
+
+
+def test_campaign_brief_refuses_a_size_the_campaign_cannot_make() -> None:
+    from book_production_platform.graphics_production.campaign_brief import (
+        plan_problems,
+    )
+
+    brief = "โพสต์ลดราคา ขนาด A4 และ square"
+    plan = {"posts": [{"id": "p1", "content": {"headline": "ลดราคา"}}], "variants": ["a4"]}
+    assert any(problem.startswith("variants_invalid") for problem in plan_problems(plan, brief, []))
+    assert not any(problem.startswith("variants_invalid") for problem in plan_problems({**plan, "variants": ["square"]}, brief, []))

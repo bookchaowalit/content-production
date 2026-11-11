@@ -243,10 +243,11 @@ def _make_items(args: argparse.Namespace) -> list[dict[str, Any]]:
 
     theme = get_theme(args.theme)
     requested = args.variant or ["all"]
-    if "all" in requested:  # every screen size; print sizes are asked for by name
-        variants = [variant for variant in theme.variants if variant not in PRINT_VARIANTS]
-    else:
-        variants = requested
+    # ``all`` is every screen size; print sizes are asked for by name and kept alongside ``all``.
+    variants: list[str] = []
+    for name in requested:
+        expanded = [variant for variant in theme.variants if variant not in PRINT_VARIANTS] if name == "all" else [name]
+        variants += [variant for variant in expanded if variant not in variants]
     content: dict[str, str] = {}
     for entry in args.slots:
         slot, separator, text = entry.partition("=")
