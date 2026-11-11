@@ -5,7 +5,7 @@ Usage:
         [--region name=x0,y0,x1,y1 ...] [--threshold 16] [--diff OUT.png] [--json]
 
 Prints, for the whole image and each region, the share of pixels whose
-greyscale difference is above ``threshold``. Exit code 2 when sizes differ.
+largest per-channel difference (R, G, B or alpha) is above ``threshold``. Exit code 2 when sizes differ.
 Used for docs/reverse/<tool>/VERIFY.md evidence.
 """
 
@@ -30,10 +30,14 @@ def compare(
     engine: Path, manual: Path, regions: dict[str, tuple[int, int, int, int]], threshold: int = 16
 ) -> dict[str, object]:
     with Image.open(engine) as a_raw, Image.open(manual) as b_raw:
-        a, b = a_raw.convert("RGB"), b_raw.convert("RGB")
+        a, b = a_raw.convert("RGBA"), b_raw.convert("RGBA")
     if a.size != b.size:
         return {"size_engine": list(a.size), "size_manual": list(b.size), "error": "size_mismatch"}
-    diff = ImageChops.difference(a, b).convert("L")
+    # Largest per-channel difference, alpha included: a transparent pixel never matches an opaque one.
+    bands = ImageChops.difference(a, b).split()
+    diff = bands[0]
+    for band in bands[1:]:
+        diff = ImageChops.lighter(diff, band)
     return {
         "size": list(a.size),
         "threshold": threshold,

@@ -46,3 +46,10 @@ def test_size_mismatch_exits_2(tmp_path: Path) -> None:
     a = _png(tmp_path / "a.png", (10, 10))
     b = _png(tmp_path / "b.png", (12, 10))
     assert diff_module.main([str(a), str(b)]) == 2
+
+
+def test_alpha_difference_counts(tmp_path: Path) -> None:
+    Image.new("RGBA", (4, 4), (0, 0, 0, 255)).save(tmp_path / "opaque.png")
+    Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(tmp_path / "clear.png")
+    result = diff_module.compare(tmp_path / "opaque.png", tmp_path / "clear.png", {})
+    assert result["whole_percent"] == 100.0

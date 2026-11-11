@@ -41,6 +41,15 @@ PARITY_DOC = {
     "audio-master-v1a": "audio.md",
     "game-v1a": "game.md",
 }
+# Older matrices that live next to a service; read when docs/parity/<doc> does not exist yet.
+SERVICE_PARITY = {
+    "documents-v1a": "services/document-production-api/docs/PARITY.md",
+    "data-viz-v1a": "services/data-production-api/docs/PARITY.md",
+    "marketing-v1a": "services/marketing-production-api/docs/PARITY.md",
+    "web-v1a": "services/web-production-api/docs/PARITY.md",
+    "workflow-v1a": "services/workflow-production-api/docs/PARITY.md",
+    "video-studio": "services/video-postproduction-api/docs/PARITY.md",
+}
 _OPEN_P1 = re.compile(r"\|\s*\**(missing|partial)[^|]*\|\s*P1\s*\|")
 _PASS = re.compile(r"\*\*pass", re.IGNORECASE)
 
@@ -66,14 +75,17 @@ def catalog_tool_ids(path: Path = CATALOG) -> list[str]:
 
 def tool_status(tool_id: str, root: Path = ROOT) -> ToolStatus:
     doc_name = PARITY_DOC.get(tool_id, f"{tool_id}.md")
-    doc = root / "docs" / "parity" / doc_name
+    doc_path = f"docs/parity/{doc_name}"
+    if not (root / doc_path).is_file() and tool_id in SERVICE_PARITY and (root / SERVICE_PARITY[tool_id]).is_file():
+        doc_path = SERVICE_PARITY[tool_id]
+    doc = root / doc_path
     text = doc.read_text(encoding="utf-8") if doc.is_file() else ""
     reverse = root / "docs" / "reverse" / tool_id
     guides = tuple(sorted(path.name for path in reverse.glob("*.md") if path.name != "VERIFY.md")) if reverse.is_dir() else ()
     verify = reverse / "VERIFY.md"
     return ToolStatus(
         tool_id=tool_id,
-        parity_doc=f"docs/parity/{doc_name}",
+        parity_doc=doc_path,
         parity=bool(text),
         flow_column=bool(re.search(r"^\| Capability \|.*\| Flow \|\s*$", text, flags=re.MULTILINE)),
         open_p1=len(_OPEN_P1.findall(text)),

@@ -45,7 +45,7 @@
 
 1. เปิด Figma ▸ `Drafts ▸ + New ▸ Design file`
 2. ตั้งหน่วยเป็นพิกเซล (Figma ใช้ px เสมอ); ค่า X/Y นับจากมุมซ้ายบนของ Frame
-3. ฟอนต์ Arial: Figma (เว็บ) ไม่มี Arial และ Arial ไม่มีอักษรไทย; ข้อความไทยใน golden ของเครื่องมือแสดงด้วยฟอนต์ fallback `Sarabun` จึงให้เลือก `Sarabun / Regular` แทน Arial ในทุกขั้นที่บอก Arial (ถ้า `font_ref` เป็นไฟล์ฟอนต์ ให้ติดตั้งไฟล์นั้นแทน)
+3. ฟอนต์ Arial: Arial ไม่มีอักษรไทย ตัวอักษรไทยใน golden ของเครื่องมือจึงแสดงด้วยฟอนต์ fallback `Sarabun`; ในขั้นที่บอก Arial ให้ตัวอักษรไทยใช้ `Sarabun / Regular` ส่วนตัวอักษรละตินและตัวเลขคงเป็น Arial (Figma เว็บไม่มี Arial ให้ใช้ `Arimo` ซึ่งความกว้างเท่า Arial; ข้อความผสมให้เลือกช่วงตัวอักษรแล้วตั้งฟอนต์แยก) ถ้า `font_ref` เป็นไฟล์ฟอนต์ ให้ติดตั้งไฟล์นั้นแทน
 4. Canva: `Create a design ▸ Custom size` ใส่ W×H px เท่ากัน แล้วใช้ Elements ▸ Shapes / Text ตามตารางเดียวกัน
 5. Photoshop: `File ▸ New…` ใส่ Width/Height เป็น Pixels, Resolution 72 ppi, RGB Color; สร้าง Shape/Type layer ตามตาราง และ `File ▸ Export ▸ Export As… ▸ PNG`
 

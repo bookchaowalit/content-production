@@ -408,9 +408,10 @@ def build_figma_guide(
             "เปิด Figma ▸ `Drafts ▸ + New ▸ Design file`",
             "ตั้งหน่วยเป็นพิกเซล (Figma ใช้ px เสมอ); ค่า X/Y นับจากมุมซ้ายบนของ Frame",
             (
-                "ฟอนต์ Arial: Figma (เว็บ) ไม่มี Arial และ Arial ไม่มีอักษรไทย; ข้อความไทยใน golden ของเครื่องมือแสดงด้วยฟอนต์ fallback "
-                f"`{THAI_FALLBACK_FAMILY}` จึงให้เลือก `{THAI_FALLBACK_FAMILY} / Regular` แทน Arial ในทุกขั้นที่บอก Arial "
-                "(ถ้า `font_ref` เป็นไฟล์ฟอนต์ ให้ติดตั้งไฟล์นั้นแทน)"
+                "ฟอนต์ Arial: Arial ไม่มีอักษรไทย ตัวอักษรไทยใน golden ของเครื่องมือจึงแสดงด้วยฟอนต์ fallback "
+                f"`{THAI_FALLBACK_FAMILY}`; ในขั้นที่บอก Arial ให้ตัวอักษรไทยใช้ `{THAI_FALLBACK_FAMILY} / Regular` "
+                "ส่วนตัวอักษรละตินและตัวเลขคงเป็น Arial (Figma เว็บไม่มี Arial ให้ใช้ `Arimo` ซึ่งความกว้างเท่า Arial; "
+                "ข้อความผสมให้เลือกช่วงตัวอักษรแล้วตั้งฟอนต์แยก) ถ้า `font_ref` เป็นไฟล์ฟอนต์ ให้ติดตั้งไฟล์นั้นแทน"
             ),
             "Canva: `Create a design ▸ Custom size` ใส่ W×H px เท่ากัน แล้วใช้ Elements ▸ Shapes / Text ตามตารางเดียวกัน",
             "Photoshop: `File ▸ New…` ใส่ Width/Height เป็น Pixels, Resolution 72 ppi, RGB Color; สร้าง Shape/Type layer ตามตาราง และ `File ▸ Export ▸ Export As… ▸ PNG`",

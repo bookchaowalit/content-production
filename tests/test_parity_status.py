@@ -42,3 +42,12 @@ def test_status_reads_flow_p1_guides_and_verify(tmp_path: Path) -> None:
 
 def test_graphics_meets_the_goal_checks() -> None:
     assert status_module.tool_status("graphics-v1a").done
+
+
+def test_falls_back_to_a_service_parity_doc(tmp_path: Path) -> None:
+    service = tmp_path / "services" / "web-production-api" / "docs"
+    service.mkdir(parents=True)
+    (service / "PARITY.md").write_text("| a | b | missing | P1 | n |\n", encoding="utf-8")
+    status = status_module.tool_status("web-v1a", tmp_path)
+    assert status.parity_doc == "services/web-production-api/docs/PARITY.md"
+    assert status.parity and not status.flow_column and status.open_p1 == 1

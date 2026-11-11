@@ -133,8 +133,8 @@ def render_reverse_guide(
             "",
             "เมื่อทำมือ ไม่มี AI: ส่วน `AI-ASSIST` ให้คนตัดสินใจแทนตามคอลัมน์ขวาสุด แล้วผลต้องผ่านส่วน `LOGIC` ถัดไปเหมือนเดิม",
         ]
-    manual = render_manual_markdown(guide).rstrip("\n").split("\n")
-    lines += ["", "---", "", *[("#" + line) if line.startswith("#") else line for line in manual]]
+    manual_lines = render_manual_markdown(guide).rstrip("\n").split("\n")
+    lines += ["", "---", "", *[("#" + line) if line.startswith("#") else line for line in manual_lines]]
     lines += ["", "## ไฟล์อ้างอิง (golden)", ""]
     if goldens:
         lines += ["| ไฟล์ | sha256 | หมายเหตุ |", "|---|---|---|"]

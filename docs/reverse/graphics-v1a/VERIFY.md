@@ -31,10 +31,12 @@ type (≈ 0.09 × font size). Shapes and colours are exact.
 
 ### Findings fixed in the guide
 
-1. **Font.** The guide said Arial. Figma (web) has no Arial, and Arial has no
+1. **Font.** The guide said Arial for all text. Figma (web) has no Arial, and Arial has no
    Thai glyphs, so the engine's Thai text is drawn by the browser fallback,
-   `Sarabun`. The Figma guide now says to use `Sarabun / Regular` wherever it
-   says Arial (`manual.THAI_FALLBACK_FAMILY`).
+   `Sarabun`. The Figma guide now says: Thai characters in `Sarabun / Regular`
+   (`manual.THAI_FALLBACK_FAMILY`); Latin letters and digits stay Arial (in
+   Figma web use `Arimo`, metric-compatible with Arial), with a per-range font
+   for mixed text. (The example batch has Thai text only.)
 2. **Baseline.** Figma puts the first baseline of a fixed text box slightly
    lower than an SVG `<tspan>`. The overlay check now allows a vertical
    difference of up to 0.1 × font size (`manual.FIGMA_TEXT_Y_TOLERANCE`) and
