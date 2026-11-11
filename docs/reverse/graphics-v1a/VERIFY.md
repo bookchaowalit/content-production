@@ -10,8 +10,12 @@ Rule: [reverse guides spec R4](../../superpowers/specs/2026-11-12-reverse-guides
 
 Evidence: [engine](evidence/engine-demo-announcement.png) ·
 [Figma](evidence/figma-demo-announcement.png) ·
-[diff mask](evidence/diff-demo-announcement.png). The engine SVG sha256
-matches the golden in `figma.md` (`acb93f47…b17a`).
+[diff mask](evidence/diff-demo-announcement.png). The run used the engine on
+this workstation, which measures label ink with the installed Sarabun files
+(SVG sha256 `acb93f47…b17a`, CTA label Y = 932.88). The committed golden in
+`figma.md` is built with font measurement off so it is the same on every
+machine (SVG `f1261810…57cb1`, CTA label Y = 934.16, 1.28 px lower); both
+are inside the text tolerance below.
 
 | Region | Pixels differing (> 16/255) |
 |---|---|

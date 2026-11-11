@@ -59,7 +59,7 @@
 | 4 | headline | Text | 1 บรรทัด · Arial Regular · 80 px · line height 96 px · 111111 · left | X=72, Y=110, W=936, H=260 |
 | 5 | body | Text | 1 บรรทัด · Arial Regular · 42 px · line height 50.4 px · 111111 · left | X=72, Y=410, W=936, H=450 |
 | 6 | cta-bg | Rectangle | fill 14213D | X=72, Y=900, W=360, H=108 |
-| 7 | cta | Text | 1 บรรทัด · Arial Regular · 32 px · line height 38.4 px · FFFFFF · center | X=92, Y=932.88, W=320, H=64 |
+| 7 | cta | Text | 1 บรรทัด · Arial Regular · 32 px · line height 38.4 px · FFFFFF · center | X=92, Y=934.16, W=320, H=64 |
 
 ### 3. ขั้นตอนทีละคลิก
 
@@ -104,7 +104,7 @@
 37. ตั้งสีพื้น (Corner radius = 0) — เครื่องมือ/เมนู: `Design panel ▸ Fill`; ค่า: `14213D`
 38. ตั้งชื่อ layer — เครื่องมือ/เมนู: `Layers panel ▸ ดับเบิลคลิกชื่อ`; ค่า: `cta-bg`
 39. สร้างกล่องข้อความ `cta` (ลากเป็นกล่อง ไม่ใช่คลิก) — เครื่องมือ/เมนู: `Text (T)`; ที่: ใน Frame demo-announcement
-40. ตั้งตำแหน่งและขนาดกล่อง แล้วเลือก resizing แบบ Fixed size — เครื่องมือ/เมนู: `Design panel ▸ X / Y / W / H ▸ Resizing: Fixed size`; ค่า: `X=92, Y=932.88, W=320, H=64`
+40. ตั้งตำแหน่งและขนาดกล่อง แล้วเลือก resizing แบบ Fixed size — เครื่องมือ/เมนู: `Design panel ▸ X / Y / W / H ▸ Resizing: Fixed size`; ค่า: `X=92, Y=934.16, W=320, H=64`
 41. ตั้งฟอนต์ — เครื่องมือ/เมนู: `Design panel ▸ Text ▸ Font family / weight`; ค่า: `Arial / Regular (400)`
 42. ตั้งขนาดตัวอักษร — เครื่องมือ/เมนู: `Design panel ▸ Text ▸ Font size`; ค่า: `32`
 43. ตั้งระยะบรรทัดเป็นพิกเซล — เครื่องมือ/เมนู: `Design panel ▸ Text ▸ Line height`; ค่า: `38.4px`
@@ -138,4 +138,4 @@
 
 | ไฟล์ | sha256 | หมายเหตุ |
 |---|---|---|
-| `demo-announcement.svg` | `acb93f4747bb174d0dcec24215eb88e66819b46ff08af4f76cc77c53f8a9b17a` | SVG ที่ engine เขียน (ต้นฉบับ layer) |
+| `demo-announcement.svg` | `f1261810ef16b1c2682afb954801afbd921c391084bf77cb87dd280af5257cb1` | SVG ที่ engine เขียน (ต้นฉบับ layer; โหมดไม่วัดไฟล์ฟอนต์ของเครื่อง) |
