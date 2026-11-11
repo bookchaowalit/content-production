@@ -122,20 +122,26 @@ def _load_frames(frames: Sequence[Path]) -> list[tuple[Path, str, tuple[int, int
         if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_FRAME_BYTES:
             raise SceneInputError("invalid_turntable_frames", "frame is missing, a symlink, or too large")
         try:
-            with Image.open(path) as image:
+            data = path.read_bytes()  # one read: the checks below and the hash see the same bytes
+        except OSError as error:
+            raise SceneInputError("invalid_turntable_frames", "frame cannot be read") from error
+        if len(data) > MAX_FRAME_BYTES:
+            raise SceneInputError("invalid_turntable_frames", "frame is too large")
+        try:
+            with Image.open(io.BytesIO(data)) as image:
                 if image.format != "PNG":
                     raise SceneInputError("invalid_turntable_frames", "frames must be PNG")
                 image.verify()
-            with Image.open(path) as image:
+            with Image.open(io.BytesIO(data)) as image:
                 size, mode = image.size, image.mode
                 if max(size) > MAX_FRAME_SIDE or mode not in {"RGB", "RGBA"}:
                     raise SceneInputError("invalid_turntable_frames", "frame size or colour mode is not supported")
                 image.load()  # decode the pixels: verify() checks chunks and CRCs, not the IDAT stream
         except SceneInputError:
             raise
-        except (OSError, SyntaxError, ValueError) as error:
+        except (OSError, SyntaxError, ValueError, Image.DecompressionBombError) as error:
             raise SceneInputError("invalid_turntable_frames", "frame is not a readable PNG") from error
-        loaded.append((path, _sha256_file(path), size, mode))
+        loaded.append((path, _sha256_bytes(data), size, mode))
     if len({item[2] for item in loaded}) != 1:
         raise SceneInputError("invalid_turntable_frames", "all frames must have the same size")
     return loaded

@@ -255,3 +255,28 @@ def test_replay_refuses_a_job_folder_that_is_not_a_real_directory(tmp_path: Path
     with pytest.raises(SceneInputError) as error:
         encode.encode_turntable(frames, output_root, preset="turntable-gif.v1", ffmpeg_bin=ffmpeg)
     assert error.value.code == "replay_integrity_error"
+
+
+def test_decompression_bomb_header_is_a_stable_input_error(tmp_path: Path) -> None:
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+
+    # 20000 × 20000 RGB header: far above Pillow's bomb limit, so Image.open itself raises.
+    header = struct.pack(">IIBBBBB", 20000, 20000, 8, 2, 0, 0, 0)
+    bomb = tmp_path / "bomb.png"
+    bomb.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(b"")) + chunk(b"IEND", b""))
+    with pytest.raises(SceneInputError) as error:
+        encode._load_frames([bomb])
+    assert error.value.code == "invalid_turntable_frames"
+
+
+def test_frame_hash_comes_from_the_validated_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import hashlib
+
+    frame = write_frames(tmp_path / "f", 1)[0]
+    expected = hashlib.sha256(frame.read_bytes()).hexdigest()
+    monkeypatch.setattr(encode, "_sha256_file", lambda _path: pytest.fail("frames must not be re-read for hashing"))
+    assert encode._load_frames([frame])[0][1] == expected
