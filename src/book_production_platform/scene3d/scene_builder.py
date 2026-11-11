@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -65,7 +66,25 @@ LIGHTING_PRESETS: dict[str, tuple[LightSpec, ...]] = {
         ("Rim Left", (-2.5, 3.5, 3.0), 1400.0, 1.0, (0.70, 0.82, 1.0)),
         ("Rim Right", (2.5, 3.5, 3.0), 1400.0, 1.0, (0.70, 0.82, 1.0)),
     ),
+    # Image-based light only: the bundled studio HDRI lights and reflects in the
+    # product; the camera still sees the background preset (see HDRI_PRESETS).
+    "studio-hdri.v1": (),
 }
+ASSETS_DIR = Path(__file__).resolve().with_name("assets")
+# Bundled environment maps. Each file is pinned by sha256 and checked before
+# Blender loads it, then packed into scene.blend so the scene stays self-contained.
+HDRI_PRESETS: dict[str, dict[str, Any]] = {
+    "studio-hdri.v1": {
+        "file": "studio_small_09_1k.exr",
+        "sha256": "44dcbed056512ecd8afd2a3d7ba73d2dd4c24694d0c72005fafcb2469bbc8fd4",
+        "source": "https://polyhaven.com/a/studio_small_09",
+        "license": "CC0-1.0",
+        "author": "Sergej Majboroda",
+        "strength": 1.0,
+        "rotation_z_degrees": 0.0,
+    },
+}
+MAX_HDRI_BYTES = 4 * 1024 * 1024
 BACKGROUND_ID = "studio-neutral.v1"
 # World colour/strength, ground plane (or None), and film transparency.
 BACKGROUND_PRESETS: dict[str, dict[str, Any]] = {
@@ -88,15 +107,39 @@ BACKGROUND_PRESETS: dict[str, dict[str, Any]] = {
         "ground": None,
         "film_transparent": True,
     },
+    # Cut-out PNG with a soft contact shadow kept in the alpha channel. EEVEE has
+    # no shadow catcher, so the ground is transparent except where ambient
+    # occlusion darkens it; the shadow fades out between fade_from and fade_to
+    # (metres from the product axis; the product is fitted to 2 m).
+    "transparent-shadow.v1": {
+        "world_color": (0.52, 0.56, 0.62, 1.0),
+        "world_strength": 0.45,
+        "ground": {
+            "size": 8.0,
+            "location": (0.0, 0.0, 0.0),
+            "shadow_catcher": {"ao_distance": 1.5, "strength": 2.0, "fade_from": 1.5, "fade_to": 3.0},
+        },
+        "film_transparent": True,
+    },
 }
 # Presets the deterministic engine accepts but the V1B brief adapter may not
 # propose yet (its eval set does not cover them).
+MATERIAL_ID = "preserve-source.v1"
+# Finish overrides applied to every Principled BSDF of the imported product.
+# Base colour (and its texture) is kept; the listed inputs are set and any
+# texture link into them (e.g. a metallic-roughness map) is removed.
+MATERIAL_PRESETS: dict[str, dict[str, float] | None] = {
+    MATERIAL_ID: None,
+    "matte.v1": {"Roughness": 0.85, "Metallic": 0.0, "Coat Weight": 0.0, "Anisotropic": 0.0},
+    "gloss.v1": {"Roughness": 0.18, "Metallic": 0.0, "Coat Weight": 1.0, "Coat Roughness": 0.03, "Anisotropic": 0.0},
+    "brushed-metal.v1": {"Roughness": 0.3, "Metallic": 1.0, "Coat Weight": 0.0, "Anisotropic": 0.8},
+}
 ENGINE_ONLY_PRESETS: dict[str, frozenset[str]] = {
     "composition": frozenset(ORBIT_COMPOSITIONS),
     "lighting": frozenset(set(LIGHTING_PRESETS) - {LIGHTING_ID}),
     "background": frozenset(set(BACKGROUND_PRESETS) - {BACKGROUND_ID}),
+    "material_preset": frozenset(set(MATERIAL_PRESETS) - {MATERIAL_ID}),
 }
-MATERIAL_ID = "preserve-source.v1"
 RENDER_ENGINE = "BLENDER_EEVEE"
 EEVEE_SAMPLES = 64
 PNG_COMPRESSION = 15
@@ -131,7 +174,7 @@ def _load_validated_scene_ir(path: Path) -> dict[str, Any]:
         "composition": COMPOSITION_IDS,
         "lighting": set(LIGHTING_PRESETS),
         "background": set(BACKGROUND_PRESETS),
-        "material_preset": {MATERIAL_ID},
+        "material_preset": set(MATERIAL_PRESETS),
         "render_profile": set(RENDER_PROFILES),
     }
     if any(value.get(key) not in allowed for key, allowed in allowlists.items()):
@@ -146,15 +189,113 @@ def _point_at(obj: Any, target: Any) -> None:
     obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
-def _make_world(bpy: Any, background: str = BACKGROUND_ID) -> None:
+def hdri_path(lighting: str) -> Path | None:
+    """The bundled HDRI for ``lighting`` after its size and sha256 check, or None."""
+
+    preset = HDRI_PRESETS.get(lighting)
+    if preset is None:
+        return None
+    path: Path = ASSETS_DIR / str(preset["file"])
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_HDRI_BYTES:
+        raise ValueError("hdri_asset_unavailable")
+    if hashlib.sha256(path.read_bytes()).hexdigest() != preset["sha256"]:
+        raise ValueError("hdri_asset_mismatch")
+    return path
+
+
+def _make_world(bpy: Any, background: str = BACKGROUND_ID, lighting: str = LIGHTING_ID) -> None:
     preset = BACKGROUND_PRESETS[background]
     world = bpy.data.worlds.new("Studio Neutral World")
     world.use_nodes = True
-    node = world.node_tree.nodes.get("Background")
+    nodes = world.node_tree.nodes
+    node = nodes.get("Background")
     if node is not None:
         node.inputs["Color"].default_value = preset["world_color"]
         node.inputs["Strength"].default_value = preset["world_strength"]
+    environment = hdri_path(lighting)
+    output = nodes.get("World Output")
+    if environment is not None and node is not None and output is not None:
+        # Light and reflections come from the HDRI; camera rays still see the
+        # background preset, so the backdrop colour does not change.
+        spec = HDRI_PRESETS[lighting]
+        links = world.node_tree.links
+        image = bpy.data.images.load(str(environment), check_existing=False)
+        image.name = "Studio HDRI"
+        image.pack()
+        coordinates = nodes.new("ShaderNodeTexCoord")
+        mapping = nodes.new("ShaderNodeMapping")
+        mapping.inputs["Rotation"].default_value = (0.0, 0.0, math.radians(spec["rotation_z_degrees"]))
+        texture = nodes.new("ShaderNodeTexEnvironment")
+        texture.name = "Studio HDRI"
+        texture.image = image
+        hdri_background = nodes.new("ShaderNodeBackground")
+        hdri_background.name = "HDRI Background"
+        hdri_background.inputs["Strength"].default_value = spec["strength"]
+        light_path = nodes.new("ShaderNodeLightPath")
+        mix = nodes.new("ShaderNodeMixShader")
+        mix.name = "Camera Sees Backdrop"
+        links.new(coordinates.outputs["Generated"], mapping.inputs["Vector"])
+        links.new(mapping.outputs["Vector"], texture.inputs["Vector"])
+        links.new(texture.outputs["Color"], hdri_background.inputs["Color"])
+        links.new(light_path.outputs["Is Camera Ray"], mix.inputs["Fac"])
+        links.new(hdri_background.outputs["Background"], mix.inputs[1])
+        links.new(node.outputs["Background"], mix.inputs[2])
+        links.new(mix.outputs["Shader"], output.inputs["Surface"])
     bpy.context.scene.world = world
+
+
+def _shadow_catcher_material(bpy: Any, spec: dict[str, float]) -> Any:
+    """Transparent ground whose alpha is the ambient-occlusion contact shadow."""
+
+    material = bpy.data.materials.new("Shadow Catcher Ground")
+    material.use_nodes = True
+    tree = material.node_tree
+    tree.nodes.clear()
+    nodes, links = tree.nodes, tree.links
+    output = nodes.new("ShaderNodeOutputMaterial")
+    occlusion = nodes.new("ShaderNodeAmbientOcclusion")
+    occlusion.samples = 16
+    occlusion.inputs["Distance"].default_value = spec["ao_distance"]
+    geometry = nodes.new("ShaderNodeNewGeometry")
+    flatten = nodes.new("ShaderNodeVectorMath")
+    flatten.operation = "MULTIPLY"
+    flatten.inputs[1].default_value = (1.0, 1.0, 0.0)
+    radius = nodes.new("ShaderNodeVectorMath")
+    radius.operation = "LENGTH"
+    fade = nodes.new("ShaderNodeMapRange")
+    fade.inputs["From Min"].default_value = spec["fade_from"]
+    fade.inputs["From Max"].default_value = spec["fade_to"]
+    fade.inputs["To Min"].default_value = 1.0
+    fade.inputs["To Max"].default_value = 0.0
+    darkness = nodes.new("ShaderNodeMath")
+    darkness.operation = "SUBTRACT"
+    darkness.use_clamp = True
+    darkness.inputs[0].default_value = 1.0
+    strength = nodes.new("ShaderNodeMath")
+    strength.operation = "MULTIPLY"
+    strength.use_clamp = True
+    strength.inputs[1].default_value = spec["strength"]
+    alpha = nodes.new("ShaderNodeMath")
+    alpha.name = "Shadow Alpha"
+    alpha.operation = "MULTIPLY"
+    alpha.use_clamp = True
+    clear = nodes.new("ShaderNodeBsdfTransparent")
+    shadow = nodes.new("ShaderNodeEmission")
+    shadow.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
+    mix = nodes.new("ShaderNodeMixShader")
+    links.new(geometry.outputs["Position"], flatten.inputs[0])
+    links.new(flatten.outputs["Vector"], radius.inputs[0])
+    links.new(radius.outputs["Value"], fade.inputs["Value"])
+    links.new(occlusion.outputs["AO"], darkness.inputs[1])
+    links.new(darkness.outputs["Value"], strength.inputs[0])
+    links.new(strength.outputs["Value"], alpha.inputs[0])
+    links.new(fade.outputs["Result"], alpha.inputs[1])
+    links.new(alpha.outputs["Value"], mix.inputs["Fac"])
+    links.new(clear.outputs["BSDF"], mix.inputs[1])
+    links.new(shadow.outputs["Emission"], mix.inputs[2])
+    links.new(mix.outputs["Shader"], output.inputs["Surface"])
+    material.surface_render_method = "BLENDED"
+    return material
 
 
 def _make_ground(bpy: Any, background: str = BACKGROUND_ID) -> None:
@@ -164,6 +305,9 @@ def _make_ground(bpy: Any, background: str = BACKGROUND_ID) -> None:
     bpy.ops.mesh.primitive_plane_add(size=spec["size"], location=spec["location"])
     ground = bpy.context.object
     ground.name = "Studio Ground"
+    if "shadow_catcher" in spec:
+        ground.data.materials.append(_shadow_catcher_material(bpy, spec["shadow_catcher"]))
+        return
     material = bpy.data.materials.new("Studio Neutral Ground")
     material.use_nodes = True
     shader = material.node_tree.nodes.get("Principled BSDF")
@@ -171,6 +315,39 @@ def _make_ground(bpy: Any, background: str = BACKGROUND_ID) -> None:
         shader.inputs["Base Color"].default_value = spec["base_color"]
         shader.inputs["Roughness"].default_value = spec["roughness"]
     ground.data.materials.append(material)
+
+
+def _apply_material_preset(bpy: Any, mesh_objects: list[Any], preset: str) -> int:
+    """Override the finish of every Principled BSDF on the product; returns how many changed."""
+
+    values = MATERIAL_PRESETS[preset]
+    if values is None:
+        return 0
+    materials = []
+    for obj in mesh_objects:
+        if not obj.material_slots:
+            obj.data.materials.append(bpy.data.materials.new("Product Default"))
+        for slot in obj.material_slots:
+            if slot.material is None:
+                slot.material = bpy.data.materials.new("Product Default")
+            if slot.material not in materials:
+                materials.append(slot.material)
+    changed = 0
+    for material in materials:
+        material.use_nodes = True
+        tree = material.node_tree
+        for node in tree.nodes:
+            if node.type != "BSDF_PRINCIPLED":
+                continue
+            for name, value in values.items():
+                socket = node.inputs[name]
+                for link in list(socket.links):
+                    tree.links.remove(link)
+                socket.default_value = value
+            changed += 1
+    if changed == 0:
+        raise ValueError("material_preset_unsupported")
+    return changed
 
 
 def _make_light(bpy: Any, name: str, location: tuple[float, float, float], energy: float, size: float, color: tuple[float, float, float]) -> None:
@@ -221,6 +398,7 @@ def _configure_studio(
     product_size: tuple[float, float, float] = (2.0, 2.0, 2.0),
     lighting: str = LIGHTING_ID,
     background: str = BACKGROUND_ID,
+    material_preset: str = MATERIAL_ID,
 ) -> None:
     scene = bpy.context.scene
     width, height = RENDER_PROFILES[render_profile]
@@ -238,7 +416,7 @@ def _configure_studio(
     scene.view_settings.view_transform = VIEW_TRANSFORM
     scene.camera = None
 
-    _make_world(bpy, background)
+    _make_world(bpy, background, lighting)
     _make_ground(bpy, background)
 
     camera_data = bpy.data.cameras.new("Product Hero Camera")
@@ -262,7 +440,7 @@ def _configure_studio(
     scene["book_production_composition"] = composition
     scene["book_production_lighting"] = lighting
     scene["book_production_background"] = background
-    scene["book_production_material_preset"] = MATERIAL_ID
+    scene["book_production_material_preset"] = material_preset
     scene["book_production_render_profile"] = render_profile
     scene["book_production_render_engine"] = RENDER_ENGINE
     scene["book_production_eevee_samples"] = EEVEE_SAMPLES
@@ -316,6 +494,7 @@ def build_scene(scene_ir_path: Path, asset_path: Path, blend_path: Path) -> None
         obj["book_production_imported_asset"] = True
 
     fitted = dimensions * fit_scale
+    _apply_material_preset(bpy, mesh_objects, scene_ir["material_preset"])
     _configure_studio(
         bpy,
         scene_ir["render_profile"],
@@ -323,6 +502,7 @@ def build_scene(scene_ir_path: Path, asset_path: Path, blend_path: Path) -> None
         (fitted.x, fitted.y, fitted.z),
         scene_ir["lighting"],
         scene_ir["background"],
+        scene_ir["material_preset"],
     )
     bpy.ops.file.pack_all()
     for image in bpy.data.images:

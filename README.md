@@ -125,6 +125,8 @@ manifest หรือ artifact ที่ถูกแก้ไข และจะ
 - จำกัดเวลา Blender worker ไว้ไม่เกิน 300 วินาที; input หรือ output ที่เกิน
   ขอบเขตจะถูกปฏิเสธก่อน publish
 - output profiles: `square-1024.v1` และ `landscape-1920x1080.v1`
+- HDRI ที่ฝังมามีไฟล์เดียว (`scene3d/assets/studio_small_09_1k.exr`, CC0) จำกัดขนาด 4 MiB
+  และถ้า sha256 ไม่ตรงจะถูกปฏิเสธ (`hdri_asset_mismatch`)
 - local pilot นี้ยังไม่ใช่ OS sandbox สำหรับเปิดรับไฟล์จากผู้ใช้ที่ไม่เชื่อถือ
 
 คำสั่งคืน JSON ที่อ่านได้ด้วยโปรแกรมและใช้ stable error code เมื่อปฏิเสธ
@@ -229,13 +231,44 @@ python -m book_production_platform.production_trace verify  --root .runtime/jobs
 (scale ของ Product Root และระยะกล้องของ composition แบบ `*-fit`) วัดใน Blender
 คู่มือจึงให้สูตรและบอกให้คัดลอกจาก `scene.blend`
 
-Preset ใหม่ (ใช้ได้ใน SceneIR แบบ structured แต่ V1B adapter ยังไม่เสนอ):
-lighting `high-key-white.v1`, `dramatic-rim.v1`; background `studio-white.v1`,
-`transparent.v1` (PNG RGBA ไม่มีพื้น); composition `orbit-fit-000.v1` …
-`orbit-fit-315.v1` ทุก 45° สร้างชุด turntable ได้ด้วย
-`python -m book_production_platform.scene3d.turntable --scene scene.json --output-dir turntable --steps 8`
-(ได้ `frame-NNN.json` แล้ว compose ทีละไฟล์) preset ใหม่ทดสอบระดับ IR/spec
-เท่านั้นเพราะยังไม่ได้ render ใน Blender จริง; ตาราง parity และ roadmap:
+Preset ที่ใช้ได้ใน SceneIR แบบ structured แต่ V1B adapter ยังไม่เสนอ:
+
+- lighting: `high-key-white.v1`, `dramatic-rim.v1`, `studio-hdri.v1` (แสงจาก HDRI
+  studio CC0 ที่ฝังมากับเครื่องมือ pin ด้วย sha256 แล้ว pack เข้า `scene.blend`;
+  กล้องยังเห็นสีพื้นหลังของ background preset)
+- background: `studio-white.v1`, `transparent.v1` (PNG RGBA ไม่มีพื้น),
+  `transparent-shadow.v1` (PNG RGBA ที่เก็บเงาสัมผัสพื้นแบบนุ่มไว้ใน alpha)
+- material_preset: `matte.v1`, `gloss.v1`, `brushed-metal.v1` ใช้สีและ texture สี
+  จาก GLB ตามเดิม แต่ทับ roughness / metallic / coat / anisotropic ของทุก Principled BSDF
+- composition: `orbit-fit-000.v1` … `orbit-fit-315.v1` ทุก 45°
+
+Turntable ทำได้สองแบบ แบบแรกได้แค่ไฟล์ SceneIR ของแต่ละมุม แล้วค่อย compose
+ทีละไฟล์เอง:
+
+```bash
+python -m book_production_platform.scene3d.turntable --scene scene.json --output-dir turntable --steps 8
+```
+
+แบบที่สอง compose ทุกมุมให้ แล้ว encode เป็น GIF หรือ MP4 ด้วย FFmpeg ต่อเลย
+(`turntable-gif.v1` 4 fps ด้านยาวไม่เกิน 512 px, `turntable-mp4.v1` H.264 4 fps
+เล่นวน 3 รอบ):
+
+```bash
+python -m book_production_platform.scene3d.turntable_encode render --scene scene.json \
+  --input-root input --output-root jobs --steps 8 --preset turntable-gif.v1 \
+  --blender "$BLENDER_BIN" --ffmpeg "$FFMPEG_BIN"
+```
+
+แต่ละมุมเป็น compose job ปกติใน `jobs/frames/` ส่วนการ encode เป็นอีก job ใน
+`jobs/turntables/<fingerprint>/` ซึ่งมี `turntable.gif|mp4`, `encode-manifest.json`,
+receipt และ trace เป็นของตัวเอง ถ้าเรียกซ้ำด้วยภาพเดิม preset เดิม และ FFmpeg รุ่นเดิม
+จะตอบ `replay` ภาพนิ่งที่โปร่งใสจะถูกวางบนพื้นขาวก่อน encode และ manifest บันทึกไว้ใน
+`flattened_on` ถ้ามีภาพนิ่งอยู่แล้วใช้ `turntable_encode encode --frame … --output-root …`
+
+ทุก preset ผ่านการ render จริงบน Blender 5.2.2 LTS แล้ว และมี golden image ใน
+`tests/fixtures/scene3d/goldens/` เทส `tests/test_scene3d_goldens.py` จะรันเมื่อตั้ง
+`BLENDER_BIN` ไว้ (ใช้เวลาราว 70 วินาที) ถ้าตั้งใจเปลี่ยนหน้าตาให้สร้าง golden ใหม่ด้วย
+`SCENE3D_UPDATE_GOLDENS=1` ตาราง parity และ roadmap อยู่ที่
 [`docs/parity/scene3d.md`](docs/parity/scene3d.md)
 
 ## Pipeline: Scene-to-Graphics (3D Scene → PNG → Graphics Template Batch)

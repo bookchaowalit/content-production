@@ -41,6 +41,8 @@ DOCTOR = ROOT / "src" / "book_production_platform" / "doctor.py"
 DOCTOR_TESTS = ROOT / "tests" / "test_doctor.py"
 SCRIPTS = ROOT / "scripts"
 PARITY_TESTS = ROOT / "tests" / "test_graphics_fork_parity.py"
+# The rest of scene3d holds Blender-worker code (``bpy``), which is not typed to this bar.
+SCENE3D_TURNTABLE_ENCODE = ROOT / "src" / "book_production_platform" / "scene3d" / "turntable_encode.py"
 RUFF_TARGETS = (
     GRAPHICS_IR,
     GRAPHICS,
@@ -77,6 +79,10 @@ RUFF_TARGETS = (
     SCRIPTS,
     PARITY_TESTS,
     ROOT / "tests" / "test_audio_boundary_check.py",
+    SCENE3D_TURNTABLE_ENCODE,
+    ROOT / "tests" / "test_scene3d_p1_presets.py",
+    ROOT / "tests" / "test_scene3d_turntable_encode.py",
+    ROOT / "tests" / "test_scene3d_goldens.py",
 )
 MYPY_TARGETS = (
     GRAPHICS_IR,
@@ -97,6 +103,7 @@ MYPY_TARGETS = (
     DOCTOR,
     SCRIPTS / "graphics_fork_parity.py",
     SCRIPTS / "audio_boundary_check.py",
+    SCENE3D_TURNTABLE_ENCODE,
 )
 
 

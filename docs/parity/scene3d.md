@@ -18,50 +18,59 @@ P3 on demand, — out of scope.
 | Auto-fit product to frame | KeyShot "fit", Blender manual | have | — | `*-fit.v1` compositions back the camera off to the bounding sphere × 1.15 |
 | Camera angle presets | manual / camera presets | have | — | three-quarter, three-quarter-fit, front, side, top, plus 8 orbit angles |
 | Free camera position / focal length | yes | — | — | by design SceneIR has no free numbers; lens fixed at 55 mm |
-| Turntable (360° set of angles) | KeyShot turntable animation, Blender orbit rig | **partial (new)** | P1 | `scene3d.turntable` writes one SceneIR per 45° step (1/2/4/8 frames), each composed and traced as its own job; no animated video/GIF encode |
-| Lighting presets | KeyShot light presets / HDRIs | **have (new: 3 presets)** | — | `softbox-three-point.v1`, `high-key-white.v1`, `dramatic-rim.v1` (area disk lights) |
-| HDRI environment lighting | core in KeyShot | missing | P1 | needs a bundled, licensed HDRI asset and a size cap |
-| Background presets | backdrop / environment colour | **have (new: 3)** | — | `studio-neutral.v1`, `studio-white.v1`, `transparent.v1` |
-| Transparent background (cut-out PNG) | Film ▸ Transparent / KeyShot alpha | **have (new)** | — | RGBA PNG, no ground plane |
-| Shadow catcher under transparent product | Blender shadow catcher / KeyShot ground shadows | missing | P1 | transparent output currently drops the floor shadow |
-| Material override presets (matte, gloss, metal) | KeyShot material library | missing | P1 | only `preserve-source.v1` (GLB materials as authored) |
+| Turntable (360° set of angles) | KeyShot turntable animation, Blender orbit rig | **have (new: encode)** | — | `scene3d.turntable` writes one SceneIR per 45° step (1/2/4/8 frames); `scene3d.turntable_encode render` composes each angle as its own job and encodes a GIF (`turntable-gif.v1`) or H.264 MP4 (`turntable-mp4.v1`) as a separate content-addressed, traced FFmpeg job. Stepped orbit (8 stills), not a smooth 36-frame spin |
+| Lighting presets | KeyShot light presets / HDRIs | have | — | `softbox-three-point.v1`, `high-key-white.v1`, `dramatic-rim.v1` (area disk lights), `studio-hdri.v1` |
+| HDRI environment lighting | core in KeyShot | **have (new)** | — | `studio-hdri.v1`: Poly Haven *Studio Small 09* 1k EXR (CC0), sha256-pinned, 4 MiB cap, packed into `scene.blend`; camera rays still see the background preset. One HDRI only; no rotation/strength choice (P3) |
+| Background presets | backdrop / environment colour | have | — | `studio-neutral.v1`, `studio-white.v1`, `transparent.v1`, `transparent-shadow.v1` |
+| Transparent background (cut-out PNG) | Film ▸ Transparent / KeyShot alpha | have | — | RGBA PNG, no ground plane |
+| Shadow catcher under transparent product | Blender shadow catcher / KeyShot ground shadows | **partial (new)** | P2 | `transparent-shadow.v1`: EEVEE has no shadow catcher, so the ground is transparent except an ambient-occlusion contact shadow kept in alpha (fades out 1.5–3 m from the product axis). Directional cast shadows from the key light are not caught; a Cycles shadow-catcher profile would add them |
+| Material override presets (matte, gloss, metal) | KeyShot material library | **have (new)** | — | `matte.v1`, `gloss.v1` (clear coat), `brushed-metal.v1` (anisotropic) override the finish of every Principled BSDF and keep base colour and its texture; `preserve-source.v1` unchanged. No recolour or per-part assignment (P2) |
 | Render engine | EEVEE, Cycles / KeyShot CPU+GPU | partial | P2 | EEVEE 64 samples in production; Cycles CPU is a benchmark candidate only |
 | Resolution profiles | any | partial | P2 | `square-1024.v1`, `landscape-1920x1080.v1`; no 4K or 4:5 |
 | Depth of field | yes | missing | P3 | |
 | Render passes / AOVs, multi-object scenes, props | yes | missing | P3 | |
 | Editable source file | `.blend` / `.bip` | have | — | `scene.blend` with packed textures |
 | Replay / content addressing | — | have | — | fingerprint of IR + asset + Blender build; tamper rejected |
-| History, provenance, redo by hand | — | **have (new)** | — | `trace.json` + `history.jsonl` + Blender `MANUAL-STEPS.md` |
+| History, provenance, redo by hand | — | have | — | `trace.json` + `history.jsonl` + Blender `MANUAL-STEPS.md` (HDRI node setup, shadow-catcher nodes and material values included); FFmpeg `MANUAL-STEPS.md` for turntable encodes |
+| Golden renders | — | **have (new)** | — | `tests/test_scene3d_goldens.py`: five full compose jobs cover every lighting, background and material preset on Blender 5.2.2 LTS; 128 px thumbnails, ≤1 % of pixels may differ by ≥16 levels (a gloss→source swap changes 2.4 %, a lost shadow 5.8 %). Runs when `BLENDER_BIN` is set; not in CI (no Blender there) |
 
-## Implemented in this pass
+## Implemented in this pass (P1)
 
-1. **More lighting presets**: `high-key-white.v1` (four neutral softboxes) and
-   `dramatic-rim.v1` (small warm key, two strong cool rims). Values live in
-   `scene_builder.LIGHTING_PRESETS`, used by both the Blender builder and the
-   manual guide.
-2. **Backgrounds**: `studio-white.v1` and `transparent.v1`
-   (`film_transparent`, RGBA PNG, no ground). `render_saved_scene` keeps RGBA
-   when the saved scene is transparent.
-3. **Turntable batch spec**: eight `orbit-fit-NNN.v1` compositions and
-   `python -m book_production_platform.scene3d.turntable --scene … --output-dir … --steps 8`.
+1. **Render check on the pinned build.** Blender 5.2.2 LTS (Linux x64, sha256
+   checked against `blender-5.2.2.sha256`) rendered every preset through the
+   real `compose_scene` job. `high-key-white.v1`, `dramatic-rim.v1`,
+   `studio-white.v1` and `transparent.v1` looked as intended, so the earlier
+   "runtime-dependent, not verified" note no longer applies. Golden thumbnails are in
+   `tests/fixtures/scene3d/goldens/`.
+2. **Shadow catcher**: `transparent-shadow.v1` (new id; `transparent.v1` is
+   unchanged so old fingerprints still replay).
+3. **Material overrides**: `matte.v1`, `gloss.v1`, `brushed-metal.v1`
+   (`scene_builder.MATERIAL_PRESETS`). A product whose materials have no
+   Principled BSDF is refused with `material_preset_unsupported`.
+4. **HDRI**: `studio-hdri.v1` with the bundled CC0 EXR
+   (`scene3d/assets/README.md` records source, author, licence and sha256).
+   A changed or missing file is refused before Blender starts
+   (`hdri_asset_mismatch` / `hdri_asset_unavailable`).
+5. **Turntable encode**: `scene3d.turntable_encode` (`encode` for existing
+   stills, `render` to compose and encode). The output folder is
+   content-addressed by frame hashes, preset and FFmpeg version, has its own
+   receipt, and returns a replay when nothing changed. Transparent stills are
+   flattened onto white and recorded as such.
 
-The V1B brief adapter does not propose these engine-only presets yet
-(`scene_builder.ENGINE_ONLY_PRESETS`): its 30-case eval set does not cover
-them. Structured SceneIR may use them directly.
-
-**Runtime-dependent, not verified here:** Blender is not installed in this
-environment, so the new presets are tested at SceneIR, builder-allowlist,
-trace, and guide level with fake workers. Their look (exposure of the
-high-key and rim rigs, alpha edges of the transparent render) still needs a
-render on the pinned Blender build and a visual review before they are
-offered to clients.
+The V1B brief adapter still does not propose any of these presets
+(`scene_builder.ENGINE_ONLY_PRESETS`), because its 30-case eval set does not cover
+them. Structured SceneIR can use them directly.
 
 ## Roadmap (prioritised)
 
-1. P1 — Render the new presets on Blender 5.2.2 LTS and add golden images.
-2. P1 — Shadow catcher for `transparent.v1`.
-3. P1 — Material override presets (matte, gloss, brushed metal) with a fixed library.
-4. P1 — HDRI environment preset with a licensed bundled HDRI.
-5. P1 — Turntable encode (stills → MP4/GIF via FFmpeg) as a separate traced job.
-6. P2 — 4K and 4:5 render profiles; Cycles production profile.
-7. P2 — FBX/OBJ intake through a converter with the same preflight.
+1. P2 — Cycles shadow-catcher profile, so transparent cut-outs also keep the key
+   light's cast shadow.
+2. P2 — 4K and 4:5 render profiles, and a Cycles production profile.
+3. P2 — FBX/OBJ intake through a converter that runs the same preflight.
+4. P2 — Material recolour and per-part material assignment (needs a part-naming
+   contract in SceneIR).
+5. P2 — Smooth turntable (e.g. 36 frames at 10°) once render time allows;
+   today 36 frames at about 25 s each take about 15 minutes on CPU EEVEE.
+6. P2 — Run the golden renders in CI, which needs Blender on a runner plus a GPU or
+   software GL that EEVEE accepts.
+7. P3 — HDRI rotation and strength variants, depth of field, render passes.

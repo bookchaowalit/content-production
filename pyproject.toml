@@ -30,6 +30,7 @@ book_production_platform = [
     "audio_ir/*.json",
     "cad_ir/*.json",
     "graphics_production/themes/*.json",
+    "scene3d/assets/*.exr",
     "cad_production/*.json",
     "cad_production/*.FCMacro",
     "bim_ir/*.json",

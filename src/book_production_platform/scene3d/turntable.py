@@ -6,8 +6,8 @@
 replay-safe ``book-production scene compose`` job with its own trace. The
 product, lighting, background, material, and render profile stay identical,
 which keeps the frames consistent for a 360° product viewer or a GIF made
-from the stills. Encoding the stills into a video/animated file is not part of
-this engine (see ``docs/parity/scene3d.md``).
+from the stills. Encoding the stills into a GIF/MP4 is a separate traced job in
+:mod:`scene3d.turntable_encode` (``render`` composes every angle and encodes).
 
 CLI::
 
