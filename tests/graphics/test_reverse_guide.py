@@ -1,7 +1,9 @@
 """Reverse guide drift test: docs/reverse/graphics-v1a/figma.md must match the engine.
 
 Built from the committed example batch without a browser: the guide comes from
-the compiled IR, the golden is the deterministic SVG. Rewrite with
+the compiled IR, the golden is the deterministic SVG. System font files are
+hidden so the IR uses the width/ink estimate on every machine (with installed
+fonts, ink-centred labels move by about 1 px). Rewrite with
 ``REVERSE_GUIDES_UPDATE=1``.
 """
 
@@ -11,6 +13,9 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
+from book_production_platform.graphics_production import fonts
 from book_production_platform.graphics_production.flow import FLOW
 from book_production_platform.graphics_production.manual import build_figma_guide
 from book_production_platform.graphics_production.render import render_svg
@@ -29,12 +34,17 @@ EXAMPLE = "examples/graphics/batch.json"
 TARGET = ROOT / "docs" / "reverse" / "graphics-v1a" / "figma.md"
 
 
+@pytest.fixture(autouse=True)
+def _no_system_fonts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(fonts, "_font_dirs", lambda: [])
+
+
 def build_text() -> str:
     items = json.loads((ROOT / EXAMPLE).read_text(encoding="utf-8"))["items"]
     irs = [(item["request_id"], compile_template(item)) for item in items]
     controls = {item["request_id"]: controls_for(item) for item in items}
     goldens = [
-        Golden(f"{name}.svg", hashlib.sha256(render_svg(ir).encode("utf-8")).hexdigest(), "SVG ที่ engine เขียน (ต้นฉบับ layer)")
+        Golden(f"{name}.svg", hashlib.sha256(render_svg(ir).encode("utf-8")).hexdigest(), "SVG ที่ engine เขียน (ต้นฉบับ layer; โหมดไม่วัดไฟล์ฟอนต์ของเครื่อง)")
         for name, ir in irs
     ]
     return render_reverse_guide(
