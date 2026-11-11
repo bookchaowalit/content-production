@@ -106,3 +106,28 @@ def test_contact_form_compiles_into_the_ir() -> None:
 )
 def test_contact_form_rejections(form: dict[str, object], code: str) -> None:
     assert code in [issue.code for issue in validate_request(_page(contact_form=form))]
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "/\t/evil.example/collect",
+        "/\n/evil.example/collect",
+        "/\r/evil.example/collect",
+        " /contact",
+        "/contact ",
+        "/\\evil.example",
+        "//x",
+        "/a//b",
+        "/\x00x",
+        "/café",
+    ],
+)
+def test_form_action_must_be_an_exact_allowlisted_path(action: str) -> None:
+    codes = [issue.code for issue in validate_request(_page(contact_form={**FORM, "action": action}))]
+    assert {"unsafe_form_action", "unsupported_form_action"} & set(codes), repr(action)
+
+
+def test_plain_relative_form_action_still_passes() -> None:
+    assert validate_request(_page(contact_form={**FORM, "action": "/contact"})) == []
+    assert validate_request(_page(contact_form={**FORM, "action": "/api/v1/lead-form_2.php"})) == []

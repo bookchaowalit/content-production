@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -30,15 +31,25 @@ def _check_href(link: LinkSpec, path: str) -> ValidationIssue | None:
     return None
 
 
-_FORM_ACTION_FORBIDDEN = frozenset("#?\\ \"'<>")
+# The exact string that is rendered must match: browsers drop tab/CR/LF and edge spaces from URLs and treat
+# "\" like "/", so "/\t/evil.example" or "/\\evil.example" would post to another host if we normalised first.
+FORM_ACTION_PATTERN = re.compile(r"/[A-Za-z0-9._~\-/]*")
+_URL_IGNORED = re.compile(r"[\x00-\x20\x7f]")
+
+
+def form_action_allowed(action: str) -> bool:
+    """True only for a same-origin path: allowlisted characters, starts with one "/", never "//"."""
+
+    return FORM_ACTION_PATTERN.fullmatch(action) is not None and "//" not in action
 
 
 def _check_form(form: ContactFormSpec) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    action = form.action.strip()
-    if action.lower().startswith(("javascript:", "data:", "http:", "https:", "//")):
+    action = form.action
+    collapsed = _URL_IGNORED.sub("", action).replace("\\", "/").lower()
+    if collapsed.startswith(("javascript:", "data:", "http:", "https:", "//")) or "//" in collapsed:
         issues.append(_issue("unsafe_form_action", "contact_form.action", "form action must be a relative path the host answers"))
-    elif not action.startswith("/") or _FORM_ACTION_FORBIDDEN & set(action):
+    elif not form_action_allowed(action):
         issues.append(_issue("unsupported_form_action", "contact_form.action", "form action must be a plain relative path such as /api/lead"))
     if not {"email", "phone"} & set(form.fields):
         issues.append(_issue("form_contact_field_required", "contact_form.fields", "a lead form needs an email or phone field"))

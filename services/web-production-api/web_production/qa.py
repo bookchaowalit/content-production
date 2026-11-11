@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from html.parser import HTMLParser
 
+from web_ir import form_action_allowed
+
 from .render import BREAKPOINTS, ON_PRIMARY
 
 # WCAG 2.2 AA (1.4.3) minimum for normal-size text; every pair below paints body-size text.
@@ -171,10 +173,9 @@ def _form_issues(attrs: list[tuple[str, dict[str, str]]]) -> list[str]:
 
     issues: list[str] = []
     for tag, values in attrs:
-        if tag == "form":
-            action = values.get("action", "")
-            if not action.startswith("/") or action.startswith("//") or values.get("method", "").lower() != "post":
-                issues.append("form_action_unsafe")
+        # The parsed (entity-decoded) value, unstripped: "/&#9;/evil" decodes to a tab and fails here.
+        if tag == "form" and (not form_action_allowed(values.get("action", "")) or values.get("method", "").lower() != "post"):
+            issues.append("form_action_unsafe")
     labelled = {values.get("for", "") for tag, values in attrs if tag == "label"}
     for tag, values in attrs:
         if tag in ("input", "textarea", "select") and values.get("id", "") not in labelled:

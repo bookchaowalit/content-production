@@ -125,6 +125,11 @@ def test_qa_flags_unlabelled_input_and_absolute_action() -> None:
     assert "form_label_missing" in run_page_qa(unlabelled, css, "styles.css")
     absolute = html.replace('action="/api/lead"', 'action="https://evil.example/x"')
     assert "form_action_unsafe" in run_page_qa(absolute, css, "styles.css")
+    for action in ("/&#9;/evil.example/collect", "/\t/evil.example/collect", "/\n/evil", "/\r/evil", " /contact", "/\\evil", "//x", "/a//b"):
+        tricked = html.replace('action="/api/lead"', f'action="{action}"')
+        assert "form_action_unsafe" in run_page_qa(tricked, css, "styles.css"), repr(action)
+    plain = html.replace('action="/api/lead"', 'action="/contact"')
+    assert run_page_qa(plain, css, "styles.css") == []
 
 
 def test_webflow_guide_builds_the_form_and_new_focus_colours() -> None:

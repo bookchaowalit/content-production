@@ -53,7 +53,11 @@ Optional `contact_form` in `PageRequest` / `PageIR`:
 ```
 
 - `action` is a relative path (`/…`), never a URL, fragment, `mailto:` or
-  `javascript:`; method is always `post`. The engine has no backend: whoever
+  `javascript:`; method is always `post`. The exact rendered string (no
+  strip) must fully match `^/[A-Za-z0-9._~\-/]*$` and contain no `//`
+  (`web_ir.form_action_allowed`), because browsers drop tab/CR/LF and edge
+  spaces and read `\` as `/`: `"/\t/evil.example"` would post off-site. QA
+  applies the same check to the parsed HTML attribute. The engine has no backend: whoever
   hosts the bundle must answer that path (a `HUMAN-GATE` in the flow).
 - `fields` is 1–4 unique names from `name`, `email`, `phone`, `message` and
   must contain `email` or `phone`. Each renders a visible `<label for>` and an
