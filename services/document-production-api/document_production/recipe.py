@@ -82,6 +82,22 @@ def build_document_ir(request: Mapping[str, Any] | DocumentRequest) -> DocumentI
         paragraphs=paragraphs,
         tables=[DocumentTable(headers=list(headers), rows=rows)],
     )
+    derived_totals = {
+        "subtotal": _money_text(subtotal),
+        "tax_total": _money_text(tax_total),
+        "grand_total": _money_text(grand_total),
+    }
+    assumptions = {
+        "calculation": "decimal-half-up-v1",
+        "model_calls": "0",
+        "recipe": RECIPE_IDS[parsed.template_id],
+    }
+    if parsed.withholding_tax_rate is not None:
+        # Thai withholding tax is taken from the amount before VAT.
+        withholding = _money(subtotal * parsed.withholding_tax_rate / Decimal(100))
+        derived_totals["withholding_tax"] = _money_text(withholding)
+        derived_totals["net_payable"] = _money_text(grand_total - withholding)
+        assumptions["withholding_tax_rate"] = f"{parsed.withholding_tax_rate:g}"
     return DocumentIR(
         document_id=parsed.document_id,
         template_ref=f"{parsed.template_id}@{parsed.template_version}",
@@ -91,15 +107,7 @@ def build_document_ir(request: Mapping[str, Any] | DocumentRequest) -> DocumentI
         customer_name=parsed.customer_name,
         issue_date=parsed.issue_date,
         sections=[section],
-        derived_totals={
-            "subtotal": _money_text(subtotal),
-            "tax_total": _money_text(tax_total),
-            "grand_total": _money_text(grand_total),
-        },
+        derived_totals=derived_totals,
         source_refs=[f"request:{parsed.document_id}"],
-        assumptions={
-            "calculation": "decimal-half-up-v1",
-            "model_calls": "0",
-            "recipe": RECIPE_IDS[parsed.template_id],
-        },
+        assumptions=assumptions,
     )

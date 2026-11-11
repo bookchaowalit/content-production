@@ -11,7 +11,13 @@ from __future__ import annotations
 from document_ir import DocumentIR
 from production_trace import ManualGuide
 
-from .renderers import _footer_label, _header_lines
+from .renderers import (
+    DOCX_FONT,
+    DOCX_SIDE_MARGIN_INCHES,
+    _footer_label,
+    _header_lines,
+    amount_in_words_line,
+)
 
 
 def build_word_guide(ir: DocumentIR) -> ManualGuide:
@@ -25,10 +31,23 @@ def build_word_guide(ir: DocumentIR) -> ManualGuide:
         summary="ทำตามขั้นตอนนี้ใน Word จะได้โครงเอกสารเหมือน `document.docx` ที่เครื่องมือสร้าง; จากนั้น Export เป็น PDF",
         setup=[
             "เปิด Microsoft Word ▸ `File ▸ New ▸ Blank document`",
-            "ถ้าเอกสารเป็นภาษาไทย ให้ใช้ฟอนต์ที่รองรับไทย เช่น TH Sarabun New หรือ Sarabun",
+            f"ติดตั้งฟอนต์ {DOCX_FONT} (Google Fonts) ถ้ายังไม่มี; ไม่มีก็ใช้ TH Sarabun New แทนได้",
         ],
     )
+    guide.step(
+        "ตั้งฟอนต์ของสไตล์ Normal (ทั้ง Latin text และ Complex scripts)",
+        tool="Home ▸ Styles ▸ Normal ▸ Modify… ▸ Format ▸ Font…",
+        value=DOCX_FONT,
+        section="ตั้งค่าหน้า",
+    )
     guide.step("ตั้งระยะขอบบน-ล่าง", tool="Layout ▸ Margins ▸ Custom Margins…", target="Top / Bottom", value='0.7"', section="ตั้งค่าหน้า")
+    guide.step(
+        "ตั้งระยะขอบซ้าย-ขวา (ในหน้าต่างเดียวกัน)",
+        tool="Layout ▸ Margins ▸ Custom Margins…",
+        target="Left / Right",
+        value=f'{DOCX_SIDE_MARGIN_INCHES}"',
+        section="ตั้งค่าหน้า",
+    )
     guide.step("ตั้งขนาดกระดาษ", tool="Layout ▸ Size", value="A4", section="ตั้งค่าหน้า")
     footer_label = _footer_label(ir)
     guide.layer("Footer", "Footer (right aligned)", content=f"{footer_label}<PAGE>", position="ท้ายทุกหน้า ชิดขวา")
@@ -76,6 +95,14 @@ def build_word_guide(ir: DocumentIR) -> ManualGuide:
             guide.step(
                 "พิมพ์ยอดตามที่เครื่องมือคำนวณ (อย่าคำนวณใหม่เอง)",
                 value=f"{name}: {value} {ir.currency}",
+                section="ยอดรวม",
+            )
+        words = amount_in_words_line(ir)
+        if words:
+            guide.step(
+                "พิมพ์จำนวนเงินเป็นตัวอักษรตามที่เครื่องมือเขียน (สไตล์ Normal)",
+                value=words,
+                note="ยอด grand_total อ่านเป็นภาษาไทย แบบเดียวกับฟังก์ชัน BAHTTEXT ของ Excel",
                 section="ยอดรวม",
             )
 

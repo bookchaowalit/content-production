@@ -10,8 +10,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SerializerFunctionWrapHandler,
     WithJsonSchema,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -57,6 +59,22 @@ class DocumentRequest(ContractModel):
     issue_date: date
     line_items: list[LineItemInput] = Field(default_factory=list)
     notes: str | None = None
+    # Thai withholding tax (ภาษีหัก ณ ที่จ่าย) in percent of the amount before VAT.
+    withholding_tax_rate: DecimalInput | None = None
+
+    @field_validator("withholding_tax_rate", mode="before")
+    @classmethod
+    def parse_withholding(cls, value: Any) -> Decimal | None:
+        return None if value is None else Decimal(str(value))
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_later_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        # Fields added after v1 shipped are left out when unset, so a request
+        # dumps (and hashes for idempotency) exactly as it did before them.
+        data: dict[str, Any] = handler(self)
+        if data.get("withholding_tax_rate", 0) is None:
+            del data["withholding_tax_rate"]
+        return data
 
 
 class DocumentRow(ContractModel):

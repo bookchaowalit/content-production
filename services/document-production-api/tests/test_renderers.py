@@ -226,3 +226,36 @@ def test_real_thai_fonts_glyph_coverage(path, covers):
     from reportlab.pdfbase.ttfonts import TTFont
 
     assert (_missing_codepoints(TTFont("CoverageProbe", path).face.charToGlyph) == []) is covers
+
+
+def test_docx_page_is_a4_like_the_pdf_and_the_word_guide(tmp_path):
+    # Found by following the Word guide in LibreOffice (docs/reverse/documents-v1a/VERIFY.md):
+    # the guide said A4 while python-docx's default template is US Letter.
+    from document_production.manual import build_word_guide
+    from docx import Document
+
+    ir = build_document_ir(sample_request())
+    render_document(ir, tmp_path)
+    section = Document(str(tmp_path / "document.docx")).sections[0]
+    assert (round(section.page_width.mm), round(section.page_height.mm)) == (210, 297)
+    margins = {step.target: step.value for step in build_word_guide(ir).steps if step.tool.startswith("Layout ▸ Margins")}
+    assert margins == {"Top / Bottom": '0.7"', "Left / Right": '1.25"'}
+    assert round(section.left_margin.inches, 2) == round(section.right_margin.inches, 2) == 1.25
+
+
+def test_docx_declares_the_thai_font_the_word_guide_names(tmp_path):
+    # Found in the same run: the DOCX named no Thai font, so Word/Writer fell back to
+    # whatever the machine had while the guide told the person to use Sarabun.
+    from document_production.manual import build_word_guide
+    from document_production.renderers import DOCX_FONT
+    from docx import Document
+    from docx.oxml.ns import qn
+
+    ir = build_document_ir(sample_request())
+    render_document(ir, tmp_path)
+    normal = Document(str(tmp_path / "document.docx")).styles["Normal"]
+    fonts = normal.element.rPr.rFonts
+    assert DOCX_FONT == "Sarabun"
+    assert {fonts.get(qn(f"w:{key}")) for key in ("ascii", "hAnsi", "cs")} == {DOCX_FONT}
+    font_steps = [step for step in build_word_guide(ir).steps if step.tool.endswith("Format ▸ Font…")]
+    assert [step.value for step in font_steps] == [DOCX_FONT]

@@ -14,6 +14,8 @@ from document_ir import ArtifactRef, DocumentIR
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError, PdfStreamError
 
+from .renderers import amount_in_words_line
+
 
 @dataclass(frozen=True)
 class QAResult:
@@ -42,11 +44,13 @@ def _normalize_text(value: str) -> str:
 
 
 def _critical_texts(ir: DocumentIR) -> list[str]:
+    words = amount_in_words_line(ir)
     return [
         ir.title,
         ir.customer_name,
         ir.issue_date.isoformat(),
         *[f"{name}: {value} {ir.currency}" for name, value in ir.derived_totals.items()],
+        *([words] if words else []),
     ]
 
 
@@ -110,8 +114,14 @@ def qa_document(ir: DocumentIR, artifacts: list[ArtifactRef], output_dir: str | 
                 row_total = sum(Decimal(row.cells[-1]) for section in ir.sections for table in section.tables for row in table.rows)
                 if row_total != subtotal:
                     issues.append(_issue("subtotal_mismatch", "derived_totals.subtotal"))
-                if Decimal(ir.derived_totals["grand_total"]) != subtotal + Decimal(ir.derived_totals["tax_total"]):
+                grand_total = Decimal(ir.derived_totals["grand_total"])
+                if grand_total != subtotal + Decimal(ir.derived_totals["tax_total"]):
                     issues.append(_issue("grand_total_mismatch", "derived_totals.grand_total"))
+                if "net_payable" in ir.derived_totals or "withholding_tax" in ir.derived_totals:
+                    if not {"net_payable", "withholding_tax"}.issubset(ir.derived_totals):
+                        issues.append(_issue("totals_missing", "derived_totals.net_payable"))
+                    elif Decimal(ir.derived_totals["net_payable"]) != grand_total - Decimal(ir.derived_totals["withholding_tax"]):
+                        issues.append(_issue("net_payable_mismatch", "derived_totals.net_payable"))
             except (InvalidOperation, IndexError):
                 issues.append(_issue("totals_not_numeric", "derived_totals"))
 

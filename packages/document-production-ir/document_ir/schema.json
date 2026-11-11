@@ -16,6 +16,10 @@
     "customer_name": {"type": "string", "minLength": 1},
     "issue_date": {"type": "string", "format": "date"},
     "line_items": {"type": "array", "minItems": 1, "maxItems": 100},
-    "notes": {"type": ["string", "null"]}
+    "notes": {"type": ["string", "null"]},
+    "withholding_tax_rate": {
+      "description": "Thai withholding tax in percent of the amount before VAT (above 0, at most 15).",
+      "anyOf": [{"type": "number", "exclusiveMinimum": 0, "maximum": 15}, {"type": "string", "pattern": "^[+]?0*\\d*\\.?\\d*$"}, {"type": "null"}]
+    }
   }
 }
