@@ -1222,6 +1222,45 @@ include `invalid_game_ir`, `resource_cap_exceeded`, `unsafe_input_path`,
 `gameplay_qa_failed`, `publication_failed`, `publication_conflict`, and
 `replay_integrity_error`.
 
+### Moving hazards (GameIR v3)
+
+`game-ir.v3` adds `hazards: [{id, path, step_ticks}]`. Each hazard patrols a
+path of neighbouring cells forward and back. One tick is
+`tile_size / player.speed`, and `step_ticks` is the number of ticks per cell.
+The validator checks that a hazard-free collect-all run exists; if not, the
+level is refused with `unsafe_hazard_schedule`. Metrics add `safe_route_ticks`
+and `hazard_wait_ticks`. The Unity side is written but not yet run on Unity.
+Until the composer template is rebuilt with `BuildComposerTemplate`, a hazard
+level is refused with `unsupported_game_feature`. See
+[`docs/parity/game.md`](docs/parity/game.md).
+
+### Level packs (`game pack`)
+
+A `game-level-pack.v1` file lists 2–12 GameIR files, next to the pack file, in
+play order:
+
+```json
+{"schema_version": "game-level-pack.v1", "pack_id": "starter-pack", "title": "Starter Pack",
+ "difficulty_order": "ascending", "levels": [{"file": "level-1.json"}, {"file": "level-2.json"}]}
+```
+
+```bash
+book-production game pack --pack pack.json --plan-only
+book-production game pack --pack pack.json --output-root jobs --unity "$UNITY_BIN"
+```
+
+`--plan-only` needs no Unity. It validates every level, requires distinct
+`scene_id`s, and reports each level's difficulty score. With `"ascending"` it
+refuses a pack whose score ever drops (`difficulty_not_ascending`). Two levels may not
+put different sounds at the same `Assets/BookProduction/Audio/` path (`pack_asset_conflict`),
+and a level file edited after the check is refused at build time (`source_changed`). A build runs
+every level as an ordinary `game build` job, then publishes
+`jobs/packs/<fingerprint>/` with `pack-manifest.json` (level order, job
+fingerprints, metrics, Build Profiles scene order) and `difficulty-curve.svg`.
+The pack trace (in the same `.trace/` history as `game build`, replays included) has a Unity guide for putting the scenes into one project in
+order. Loading the next level after a win is still wired by hand
+(`scene_flow: "manual"`).
+
 ### Export playable players (`game export`)
 
 `game export` turns an accepted `game build` artifact into a playable build for
