@@ -1,8 +1,12 @@
-"""Strict, versioned models and parser for GameIR v1 and v2.
+"""Strict, versioned models and parser for GameIR v1, v2 and v3.
 
 v2 adds optional audio from a local asset root (``assets`` + ``audio``);
 everything else is identical to v1, and a v1 document never carries
 either field so its canonical bytes and fingerprint stay unchanged.
+
+v3 adds moving hazards (``hazards``) on top of v2. A hazard walks back and
+forth along a fixed path of neighbouring cells, ``step_ticks`` player-steps per
+cell; v1/v2 documents never carry it, so their bytes and fingerprints stay the same.
 """
 
 from __future__ import annotations
@@ -25,8 +29,12 @@ from .errors import GameInputError
 MAX_GAME_IR_BYTES = 256 * 1024
 GAME_IR_SCHEMA_VERSION = "game-ir.v1"
 GAME_IR_V2_SCHEMA_VERSION = "game-ir.v2"
-GAME_IR_SCHEMA_VERSIONS = (GAME_IR_SCHEMA_VERSION, GAME_IR_V2_SCHEMA_VERSION)
+GAME_IR_V3_SCHEMA_VERSION = "game-ir.v3"
+GAME_IR_SCHEMA_VERSIONS = (GAME_IR_SCHEMA_VERSION, GAME_IR_V2_SCHEMA_VERSION, GAME_IR_V3_SCHEMA_VERSION)
 MAX_GAME_ASSETS = 4
+MAX_GAME_HAZARDS = 8
+MAX_HAZARD_PATH_CELLS = 16
+MAX_HAZARD_STEP_TICKS = 8
 AUDIO_EXTENSIONS = (".wav", ".ogg")
 GAME_TEMPLATE = "top-down-collect.v1"
 GAME_PALETTE: Literal["palette-minimal.v1"] = "palette-minimal.v1"
@@ -108,8 +116,20 @@ class AudioIR(StrictModel):
     collect_sfx: EntityId | None = None
 
 
+class HazardIR(StrictModel):
+    """A hazard patrolling ``path`` back and forth (ping-pong), one cell every ``step_ticks`` ticks.
+
+    A tick is the time the player needs for one cell (``tile_size / player.speed``),
+    so ``step_ticks = 2`` moves at half the player's speed.
+    """
+
+    id: EntityId
+    path: Annotated[tuple[Cell, ...], BeforeValidator(_array_to_tuple)] = Field(min_length=2, max_length=MAX_HAZARD_PATH_CELLS)
+    step_ticks: int = Field(ge=1, le=MAX_HAZARD_STEP_TICKS)
+
+
 class GameIR(StrictModel):
-    schema_version: Literal["game-ir.v1", "game-ir.v2"]
+    schema_version: Literal["game-ir.v1", "game-ir.v2", "game-ir.v3"]
     scene_id: FileNameId
     template: Literal["top-down-collect.v1"]
     palette: Literal["palette-minimal.v1"] = GAME_PALETTE
@@ -126,9 +146,15 @@ class GameIR(StrictModel):
         max_length=MAX_GAME_ASSETS,
     )
     audio: AudioIR | None = None
+    hazards: Annotated[tuple[HazardIR, ...], BeforeValidator(_array_to_tuple)] = Field(
+        default=(),
+        max_length=MAX_GAME_HAZARDS,
+    )
 
     @model_validator(mode="after")
     def _assets_match_version(self) -> GameIR:
+        if self.schema_version != GAME_IR_V3_SCHEMA_VERSION and self.hazards:
+            raise ValueError("only game-ir.v3 accepts hazards")
         if self.schema_version == GAME_IR_SCHEMA_VERSION:
             if self.assets or self.audio is not None:
                 raise ValueError("game-ir.v1 does not accept assets or audio")

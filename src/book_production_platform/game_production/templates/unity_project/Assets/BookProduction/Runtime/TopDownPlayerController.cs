@@ -26,6 +26,7 @@ namespace BookProduction.Runtime
     public sealed class TopDownPlayerController : MonoBehaviour
     {
         [SerializeField] private float moveSpeed = 5f;
+        [SerializeField] private Vector2 spawnPosition;
         private Rigidbody2D body;
         private GameProgress progress;
 
@@ -35,6 +36,25 @@ namespace BookProduction.Runtime
         {
             moveSpeed = speed;
             progress = gameProgress;
+        }
+
+        public Vector2 SpawnPosition { get { return spawnPosition; } }
+
+        public void SetSpawn(Vector2 position)
+        {
+            spawnPosition = position;
+        }
+
+        /// <summary>Back to the spawn cell (a hazard touched the player); collected objectives stay collected.</summary>
+        public void Respawn()
+        {
+            if (body == null)
+            {
+                body = GetComponent<Rigidbody2D>();
+            }
+            body.position = spawnPosition;
+            body.linearVelocity = Vector2.zero;
+            transform.position = spawnPosition;
         }
 
         private void Awake()

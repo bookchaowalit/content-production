@@ -30,6 +30,7 @@ WORKER_REPORT_FIELDS = frozenset(
         "trusted_template_no_network_references",
         "music_source_count",
         "collect_sound_configured",
+        "hazard_count",
     }
 )
 
@@ -89,6 +90,7 @@ def verify_worker_report(project_path: Path, game_ir: GameIR, unity_version: str
         or report.get("trusted_template_no_network_references") is not True
         or report.get("music_source_count") != (1 if audio and audio.music else 0)
         or report.get("collect_sound_configured") is not bool(audio and audio.collect_sfx)
+        or report.get("hazard_count") != len(game_ir.hazards)
     ):
         raise GameJobError("scene_qa_failed", "Unity scene verification did not match the GameIR")
     return report
@@ -127,16 +129,20 @@ def verify_gameplay_trace(trace_path: Path, game_ir: GameIR) -> tuple[tuple[str,
     expected_objective_events = Counter(
         f"objective_collected:{objective.id}" for objective in game_ir.objectives
     )
+    hazard_events = Counter(event for event in events if event.startswith("hazard_hit:"))
+    expected_hazard_events = Counter(f"hazard_hit:{hazard.id}" for hazard in game_ir.hazards)
     allowed_events = {
         "player_moved",
         blocked_event,
         won_event,
         *expected_objective_events.keys(),
+        *expected_hazard_events.keys(),
     }
     if (
         events[0] != blocked_event
         or events.count("player_moved") != 1
         or objective_events != expected_objective_events
+        or hazard_events != expected_hazard_events
         or events.count(won_event) != 1
         or events[-1] != won_event
         or any(event not in allowed_events for event in events)

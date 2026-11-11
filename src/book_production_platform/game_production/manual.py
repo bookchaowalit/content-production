@@ -43,6 +43,10 @@ def _position(cell: Cell, ir: GameIR) -> str:
     return f"X {num(x)}, Y {num(y)}, Z 0"
 
 
+def _seconds_per_cell(step_ticks: int, ir: GameIR) -> float:
+    return step_ticks * ir.world.tile_size / ir.player.speed
+
+
 def build_unity_guide(ir: GameIR, metrics: LevelMetrics | None = None) -> ManualGuide:
     """Translate one validated GameIR into numbered Unity 6 Editor steps."""
 
@@ -96,11 +100,17 @@ def build_unity_guide(ir: GameIR, metrics: LevelMetrics | None = None) -> Manual
         f"Exit-{level.exit.id}", "SpriteRenderer(exit, order 2) + BoxCollider2D(trigger) + ExitGate",
         content=f"cell ({level.exit.cell[0]}, {level.exit.cell[1]})", position=_position(level.exit.cell, level),
     )
+    for hazard in level.hazards:
+        guide.layer(
+            f"Hazard-{hazard.id}", "SpriteRenderer(hazard, order 3) + Rigidbody2D(Kinematic) + CircleCollider2D(trigger) + HazardPatrol",
+            content=f"path {len(hazard.path)} ช่อง, {num(_seconds_per_cell(hazard.step_ticks, level))} วินาที/ช่อง",
+            position=_position(hazard.path[0], level),
+        )
 
     s = "ฉากและ sprite"
     guide.step("สร้างฉากเปล่า", tool="File ▸ New Scene ▸ Empty (Built-in) ▸ Create", section=s)
     guide.step("บันทึกฉาก", tool="File ▸ Save As…", value=f"Assets/Scenes/{level.scene_id}.unity", section=s)
-    for sprite in ("player", "wall", "objective", "exit"):
+    for sprite in ("player", "wall", "objective", "exit", *(("hazard",) if level.hazards else ())):
         guide.step(
             f"ตั้งค่า import ของ {sprite}.png แล้วกด Apply", target=f"Project ▸ {ART_ROOT}/{sprite}.png ▸ Inspector",
             value="Texture Type = Sprite (2D and UI), Pixels Per Unit = 16, Filter Mode = Point (no filter), Generate Mip Maps = off",
@@ -216,6 +226,35 @@ def build_unity_guide(ir: GameIR, metrics: LevelMetrics | None = None) -> Manual
                      f"Box Collider 2D Size X 0.8, Y 0.8, Is Trigger = on; ExitGate ▸ Exit Id = {level.exit.id}, Progress = GameProgress; "
                      f"Entity Id = {level.exit.id}, Entity Type = exit", section=s)
 
+    if level.hazards:
+        s = "สิ่งกีดขวางที่เคลื่อนที่ (hazard)"
+        guide.step(
+            "ตั้งจุดเกิดให้ผู้เล่น (ใช้ตอนโดน hazard)", target=f"Inspector ▸ Player-{level.player.id} ▸ TopDownPlayerController",
+            value=f"Spawn Position = {_position(level.player.spawn, level)}", section=s,
+        )
+        for hazard in level.hazards:
+            name = f"Hazard-{hazard.id}"
+            waypoints = "; ".join(_position(cell, level) for cell in hazard.path)
+            guide.step(f"สร้าง {name}", tool="GameObject ▸ 2D Object ▸ Sprites ▸ Square", target="Hierarchy (root)", value=name, section=s)
+            guide.step(
+                "ตั้งค่า", target=f"Inspector ▸ {name}",
+                value=(
+                    f"Position {_position(hazard.path[0], level)}; Scale {num(level.world.tile_size)}; Sprite = {ART_ROOT}/hazard.png, Order in Layer = 3; "
+                    "Rigidbody 2D Body Type = Kinematic, Interpolate = Interpolate; Circle Collider 2D Radius 0.3, Is Trigger = on; "
+                    f"Entity Id = {hazard.id}, Entity Type = hazard"
+                ),
+                section=s,
+            )
+            guide.step(
+                "ใส่ HazardPatrol", tool="Add Component ▸ HazardPatrol", target=f"Inspector ▸ {name}",
+                value=(
+                    f"Hazard Id = {hazard.id}; Waypoints ({len(hazard.path)}) = {waypoints}; "
+                    f"Seconds Per Cell = {num(_seconds_per_cell(hazard.step_ticks, level))}; Progress = GameProgress"
+                ),
+                note="เดินไปตาม Waypoints แล้วย้อนกลับ (ping-pong) ไม่หยุดที่ปลาย; ชนผู้เล่นแล้วผู้เล่นกลับจุดเกิด ของที่เก็บแล้วยังอยู่",
+                section=s,
+            )
+
     s = "ทดสอบ Play mode และ build"
     guide.step("บันทึกฉาก", tool="File ▸ Save", value=f"Assets/Scenes/{level.scene_id}.unity", section=s)
     guide.step("ใส่ฉากใน build", tool="File ▸ Build Profiles ▸ Scene List ▸ Add Open Scenes", value=f"Assets/Scenes/{level.scene_id}.unity", section=s)
@@ -231,9 +270,16 @@ def build_unity_guide(ir: GameIR, metrics: LevelMetrics | None = None) -> Manual
         "เดินเข้าทางออก — GameProgress ▸ Is Won ต้องเป็น on", target=f"cell ({level.exit.cell[0]}, {level.exit.cell[1]})",
         value=f"event game_won:{level.exit.id}", section=s,
     )
+    if level.hazards:
+        guide.step(
+            "เดินชน hazard สักตัว — ผู้เล่นต้องกลับจุดเกิด", target="Game view",
+            value="event hazard_hit:<id>", section=s,
+        )
 
     guide.checks = [
-        f"Hierarchy มี Player 1, Wall {len(wall_cells)}, Objective {len(level.objectives)}, Exit 1, Boundary 4, Main Camera, GameProgress",
+        f"Hierarchy มี Player 1, Wall {len(wall_cells)}, Objective {len(level.objectives)}, Exit 1, "
+        + (f"Hazard {len(level.hazards)}, " if level.hazards else "")
+        + "Boundary 4, Main Camera, GameProgress",
         f"ทุกของสะสมและทางออกเดินถึงได้จากจุดเกิด (เครื่องมือตรวจ BFS 4 ทิศ: เข้าถึงได้ {stats.reachable_cells}/{stats.walkable_cells} ช่องว่าง)",
         (
             f"เส้นทางสั้นสุด ({stats.route_method}) = {stats.route_steps} ช่อง ลำดับ {' → '.join(stats.route_order)} → {level.exit.id}; "
@@ -243,6 +289,11 @@ def build_unity_guide(ir: GameIR, metrics: LevelMetrics | None = None) -> Manual
         "Console ไม่มี error และ Play mode จบด้วย event game_won (เทียบกับ `gameplay-trace.json` ของเครื่องมือ)",
         "ไม่มี component อื่นนอกจากที่ระบุ และไม่มี asset จากภายนอกโปรเจกต์",
     ]
+    if level.hazards:
+        guide.checks.insert(2, (
+            f"Hazard {len(level.hazards)} ตัว วนครบรอบทุก {stats.hazard_period_ticks} tick; เส้นทางที่ไม่โดน hazard ใช้ {stats.safe_route_ticks} tick "
+            f"(รอ/อ้อม {stats.hazard_wait_ticks} tick; 1 tick = {num(level.world.tile_size / level.player.speed)} วินาที)"
+        ))
     guide.glossary = {
         "CellCenter": "ตำแหน่งกลางช่อง = (x × tile − (width − 1) × tile / 2, y × tile − (height − 1) × tile / 2)",
         "Godot 4": "TileMapLayer (tile size = tile) สำหรับกำแพง หรือ StaticBody2D ต่อช่อง; ผู้เล่น CharacterBody2D; ของสะสม/ทางออก Area2D",

@@ -36,7 +36,7 @@ and are not runtime-verified.
 | Level map preview | Scene view / editor screenshots | **have (new)** | — | `level-map.svg` with route, `ascii_map` in the guide |
 | Traceability per run | — | **have (new)** | — | `trace.json` (validate, assets, runtime/template hashes, Unity stages + test totals, gameplay QA, publish), `history.jsonl`, `ir.json`; compose and export, success and failure |
 | "How would I do this by hand" | tutorials | **have (new)** | — | Unity 6 guide: every entity's name, cell, exact Transform position, components and values; Play mode check in route order; Build Profiles guide for export |
-| Moving hazards / enemies | yes | missing | P1 | needs IR v3 entity + patrol validator (time-expanded reachability) + SceneCompiler + PlayMode test + V1B allowlist; not added here because the Unity side cannot be verified on this host |
+| Moving hazards / enemies | yes | **partial (new)** | P1 | GameIR v3 `hazards` (ping-pong patrol, `step_ticks` per cell), time-expanded safe-run proof (`unsafe_hazard_schedule`), metrics/map/guide/QA done and tested. Unity `HazardPatrol`, compiler slots and PlayMode tests are written but **not run**: the composer template scene still has no hazard slots, so v3 levels with hazards are refused with `unsupported_game_feature` until `BuildComposerTemplate` is run on a licensed Unity. V1B adapter does not propose hazards |
 | Multiple levels / scene flow | Build Settings scene list / SceneTree | missing | P1 | a level-pack IR + per-level metrics + difficulty curve; needs SceneCompiler multi-scene support |
 | Doors / keys / switches | scripting | missing | P2 | |
 | Animation / sprite sheets | Animator / AnimationPlayer | missing | P3 | palette sprites only |
@@ -55,11 +55,32 @@ and are not runtime-verified.
 3. Top-down level map SVG + ASCII map (`game_production/level_map.py`).
 4. AI provenance sidecar from `game brief`, honoured only on a hash match.
 
+## Moving hazards (GameIR v3) — status
+
+- Model: `hazards: [{id, path: [cells], step_ticks}]`, at most 8 hazards and
+  16 path cells each. Paths use 4-neighbour cells that are unique, open, and
+  not the spawn, an objective or the exit. One tick is `tile_size / player.speed`.
+  World side is at most 32 and the joint hazard period at most 240 ticks.
+- Proof (`game_ir/hazards.py`): conservative grid model. During a tick, both cells
+  a hazard moves between are dangerous; the player may wait or step and must
+  avoid both. The validator checks that a run collecting everything and reaching
+  the exit exists. Off-path cells are always safe, so a greedy order is complete.
+- Metrics: `safe_route_ticks` and `hazard_wait_ticks`, plus a hazard term in the
+  difficulty score. These keys exist only for hazard levels, so v1/v2 metrics are
+  byte-identical.
+- Unity (written, not yet run): `HazardPatrol` runs a kinematic trigger on fixed
+  time, and a hit sends the player to spawn. The template has 8 hazard slots and
+  `hazard.png`. PlayMode touches each hazard once (`hazard_hit:<id>` in the
+  gameplay trace, which QA requires) and checks the patrol path and timing.
+- To finish: on a licensed Unity 6000.6.2f1, run
+  `BookProduction.Editor.SceneCompiler.BuildComposerTemplate` to rebuild
+  `Source/scene-composer-template.unity`, then build a hazard level end to end.
+  The template hash is part of every game fingerprint, so existing jobs will
+  rebuild rather than replay.
+
 ## Roadmap (prioritised)
 
-1. P1 — Moving hazards: `hazards: [{id, path: [cells], period_steps}]` in a
-   GameIR v3, validator proving a safe collect-all schedule exists
-   (time-expanded BFS), SceneCompiler patrol component, PlayMode test, V1B
+1. P1 — Finish hazards on Unity (template rebuild + real build), then V1B
    allowlist + eval cases.
 2. P1 — Level packs: ordered levels, per-level metrics, monotone difficulty
    check, one scene per level in Build Profiles.
