@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from .export import ExportError, export_batch
+from .export import ExportError, PrintProfile, export_batch
 from .jobs import IdempotencyConflict, run_batch
 from .provider import (
     PROVIDER_NOT_CONFIGURED,
@@ -116,6 +116,10 @@ def _parser() -> argparse.ArgumentParser:
     export.add_argument("--output", required=True, help="local output directory")
     export.add_argument("--scale", type=int, default=3, help="render scale factor (1-6)")
     export.add_argument("--dpi", type=int, default=300, help="PDF resolution (72-1200)")
+    export.add_argument("--bleed-mm", type=float, default=0.0, help="press PDF: bleed on every side in mm (0-10; 3 is usual)")
+    export.add_argument("--crop-marks", action="store_true", help="press PDF: add crop marks outside the bleed")
+    export.add_argument("--cmyk-icc", default=None, metavar="PATH",
+                        help="press PDF: convert to CMYK with the printer's ICC profile (e.g. ISO Coated v2, PSO Uncoated)")
     brief = commands.add_parser("brief", help="propose a template batch from a free-text brief (provider mode=live only)")
     brief.add_argument("--input", required=True, help="path to a JSON object with a brief string and optional locale")
     brief.add_argument("--output", required=True, help="path for the proposed batch JSON (input for the batch command)")
@@ -125,7 +129,7 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("themes", help="list the registered templates (themes): sizes, text slots, and brief words")
     make = commands.add_parser("make", help="render one theme from command-line text (no JSON, no AI)")
     make.add_argument("--theme", required=True, help="template/theme id (see the themes command)")
-    make.add_argument("--variant", action="append", default=None, help="square, portrait, story, landscape, or all; repeatable")
+    make.add_argument("--variant", action="append", default=None, help="square, portrait, story, landscape, a4 (print), or all (the screen sizes); repeatable")
     make.add_argument("--set", dest="slots", action="append", default=[], metavar="SLOT=TEXT", help="slot text; repeatable")
     make.add_argument("--art-style", default=None, help="art style pack id (see the styles command), e.g. retro, minimal, jazz")
     make.add_argument("--keep-brand-colors", action="store_true", help="with --art-style: keep the brand colors as accents")
@@ -235,11 +239,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _make_items(args: argparse.Namespace) -> list[dict[str, Any]]:
-    from .themes import VARIANT_SIZES, get_theme
+    from .themes import PRINT_VARIANTS, VARIANT_SIZES, get_theme
 
     theme = get_theme(args.theme)
     requested = args.variant or ["all"]
-    variants = list(theme.variants) if "all" in requested else requested
+    if "all" in requested:  # every screen size; print sizes are asked for by name
+        variants = [variant for variant in theme.variants if variant not in PRINT_VARIANTS]
+    else:
+        variants = requested
     content: dict[str, str] = {}
     for entry in args.slots:
         slot, separator, text = entry.partition("=")
@@ -523,7 +530,7 @@ def _run_style_create(args: argparse.Namespace) -> int:
 def _run_compose(args: argparse.Namespace) -> int:
     from .composer import compose
     from .layouts import LAYOUT_DIR_ENV, TEXT_SLOTS, save_layout
-    from .themes import VARIANT_SIZES
+    from .themes import SOCIAL_VARIANTS, VARIANT_SIZES
 
     if args.layout_dir or not os.environ.get(LAYOUT_DIR_ENV):
         os.environ[LAYOUT_DIR_ENV] = args.layout_dir or ".runtime/graphics-layouts"
@@ -550,9 +557,10 @@ def _run_compose(args: argparse.Namespace) -> int:
             return 2
         photos["logo"] = Path(args.logo).resolve()
     requested = args.variant or ["portrait"]
-    variants = list(VARIANT_SIZES) if "all" in requested else requested
-    if any(variant not in VARIANT_SIZES for variant in variants) or not 1 <= args.count <= 8:
-        print("input error: bad --variant or --count", file=sys.stderr)
+    variants = list(SOCIAL_VARIANTS) if "all" in requested else requested
+    if any(variant not in SOCIAL_VARIANTS for variant in variants) or not 1 <= args.count <= 8:
+        print("input error: bad --variant or --count (compose makes square, portrait, story, landscape; "
+              "for A4 use `graphics make --variant a4`)", file=sys.stderr)
         return 2
     base: dict[str, Any] = {"request_id": args.idempotency_key, "brand": {"primary": args.primary, "accent": args.accent}, "content": content}
     if photos:
@@ -679,7 +687,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_shadow(args)
     if args.command == "export":
         try:
-            exported = export_batch(args.manifest, args.output, scale=args.scale, dpi=args.dpi)
+            press = PrintProfile(bleed_mm=args.bleed_mm, crop_marks=args.crop_marks,
+                                 cmyk_icc=Path(args.cmyk_icc) if args.cmyk_icc else None)
+            exported = export_batch(args.manifest, args.output, scale=args.scale, dpi=args.dpi, press=press)
         except (ExportError, RenderError) as exc:
             print(f"export error: {exc}", file=sys.stderr)
             return 2

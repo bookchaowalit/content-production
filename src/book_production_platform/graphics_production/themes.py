@@ -57,7 +57,17 @@ VARIANT_SIZES: dict[str, tuple[int, int]] = {
     "portrait": (1080, 1350),
     "story": (1080, 1920),
     "landscape": (1920, 1080),
+    # Print: A4 (210 x 297 mm) at 150 px per inch, so ``export --scale 2 --dpi 300``
+    # gives exactly 2480 x 3508 px, A4 at 300 DPI.
+    "a4": (1240, 1754),
 }
+# Sizes made for screens (what ``all`` means and what the AI composer and brief adapter offer).
+SOCIAL_VARIANTS: tuple[str, ...] = ("square", "portrait", "story", "landscape")
+# Print sizes; a theme that has a portrait arrangement also comes in these.
+PRINT_VARIANTS: tuple[str, ...] = ("a4",)
+# A size without its own ``by_variant`` entry or ``when.variant`` match uses this size's
+# arrangement (layouts are written in W/H/MIN, so the portrait layout scales to A4).
+VARIANT_FALLBACK: dict[str, str] = {"a4": "portrait"}
 BUILTIN_FONTS = frozenset(ART_FONTS)
 DEFAULT_CHAR_WIDTH = 0.55
 MAX_EXPRESSION_CHARS = 400
@@ -196,6 +206,9 @@ def parse_theme(raw: Mapping[str, Any], *, source: str = "") -> Theme:
     variants = tuple(raw.get("variants") or ())
     if not variants or any(variant not in VARIANT_SIZES for variant in variants):
         raise ThemeError(f"theme_variants_invalid:{theme_id}")
+    for variant, base in VARIANT_FALLBACK.items():
+        if base in variants and variant not in variants:
+            variants = (*variants, variant)
     ir_version = raw.get("ir_version", "graphic-ir.v2")
     if ir_version not in ("graphic-ir.v1", "graphic-ir.v2"):
         raise ThemeError(f"theme_ir_version_invalid:{theme_id}")
@@ -332,7 +345,10 @@ class Context:
         while isinstance(value, Mapping):
             if "by_variant" in value:
                 table = value["by_variant"]
-                value = table.get(self.request.variant, table.get("default"))
+                variant: str = self.request.variant
+                if variant not in table:
+                    variant = VARIANT_FALLBACK.get(variant, variant)
+                value = table.get(variant, table.get("default"))
                 if value is None:
                     raise ThemeError("by_variant_missing_default")
             elif "if_asset" in value:
@@ -511,7 +527,7 @@ def _condition_holds(when: Any, ctx: Context) -> bool:
             return False
         if key == "no_slot" and any(ctx.request.content.get(item, "").strip() for item in values):
             return False
-        if key == "variant" and ctx.request.variant not in values:
+        if key == "variant" and ctx.request.variant not in values and VARIANT_FALLBACK.get(ctx.request.variant) not in values:
             return False
         if key not in ("asset", "no_asset", "slot", "no_slot", "variant"):
             raise ThemeError(f"when_unknown:{key}")
@@ -904,7 +920,10 @@ __all__ = [
     "EDITABLE_CHOICES",
     "EDITABLE_COLORS",
     "EDITABLE_NUMBERS",
+    "PRINT_VARIANTS",
+    "SOCIAL_VARIANTS",
     "THEMES_DIR",
+    "VARIANT_FALLBACK",
     "VARIANT_SIZES",
     "Context",
     "Theme",

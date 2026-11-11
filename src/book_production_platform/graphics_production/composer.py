@@ -1103,7 +1103,11 @@ def compose(base: Mapping[str, Any], variants: list[str], *, count: int = 3, see
     """
 
     from .layouts import assess_layout
+    from .themes import SOCIAL_VARIANTS
 
+    unsupported = [variant for variant in variants if variant not in SOCIAL_VARIANTS]
+    if unsupported:  # composed layouts are tuned per screen size; print sizes come from themes
+        raise ValueError(f"compose_variant_unsupported:{','.join(unsupported)}")
     content = {key: str(value) for key, value in (base.get("content") or {}).items() if str(value).strip()}
     photos = [key for key in sorted(base.get("assets") or {}) if key != LOGO]  # the logo is never a hero photo
     aspect = logo_aspect(base)

@@ -71,7 +71,7 @@ from .art_styles import load_art_styles
 from .layout import LayoutError, visible_length
 from .provider_config import ProviderConfig, ProviderConfigError, parse_provider_config
 from .templates import VARIANT_SIZES, TemplateError, compile_template
-from .themes import Theme, load_themes
+from .themes import SOCIAL_VARIANTS, Theme, load_themes
 
 BRIEF_ADAPTER_VERSION = "graphics-brief-adapter.v1"
 SHADOW_MODE_ONLY = "shadow_mode_only"
@@ -93,7 +93,8 @@ REQUIRED_SLOTS: dict[str, tuple[str, ...]] = {
 }
 TEMPLATE_VARIANTS: dict[str, tuple[str, ...]] = {theme_id: theme.variants for theme_id, theme in THEMES.items()}
 TEMPLATE_IDS: tuple[str, ...] = tuple(THEMES)
-VARIANT_IDS: tuple[str, ...] = tuple(VARIANT_SIZES)
+# The brief adapter offers the screen sizes only; A4 needs its own eval cases before the model may propose it.
+VARIANT_IDS: tuple[str, ...] = tuple(variant for variant in VARIANT_SIZES if variant in SOCIAL_VARIANTS)
 # Words that evidence a variant in the brief (REQ-AI-07). A variant the brief
 # does not evidence is treated as missing.
 VARIANT_EVIDENCE: dict[str, tuple[str, ...]] = {

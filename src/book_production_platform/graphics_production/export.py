@@ -7,6 +7,10 @@ single-page PDF that carries the requested DPI (a 1080 px canvas at scale 3
 and 300 DPI prints at about 27.4 cm). A ``graphics-export.v1`` manifest
 records every output with its hash and the source SVG hash. Nothing is
 written for an item unless all of its outputs succeed.
+
+With a :class:`~.print_pdf.PrintProfile` (bleed, crop marks, CMYK ICC profile) the PDF is a
+press PDF instead: trim/bleed/media boxes, mirrored bleed, crop marks, and CMYK pixels with
+the profile as output intent. The PNG stays the RGB artwork at trim size.
 """
 
 from __future__ import annotations
@@ -28,9 +32,11 @@ from PIL import Image
 from book_production_platform.production_trace import ManualGuide, TraceRecorder
 
 from .jobs import ENGINE_VERSION, TOOL_ID
+from .print_pdf import CmykProfile, PrintError, PrintProfile, check_profile, press_pdf
 from .render import RenderError, _find_browser, rasterize_svg, rasterizer
 
 EXPORT_RECIPE = "graphics-print-export.v1"
+PRESS_RECIPE = "graphics-press-export.v1"
 MIN_SCALE, MAX_SCALE = 1, 6
 MIN_DPI, MAX_DPI = 72, 1200
 
@@ -105,7 +111,7 @@ def _artifact_path(batch_root: Path, filename: str) -> Path:
     return batch_root.joinpath(*parts)
 
 
-def build_export_guide(items: list[dict[str, Any]], *, scale: int, dpi: int) -> ManualGuide:
+def build_export_guide(items: list[dict[str, Any]], *, scale: int, dpi: int, press: PrintProfile | None = None) -> ManualGuide:
     """Manual steps for the print export: Figma PNG at ``scale``x, then a raster PDF at ``dpi`` in Photoshop."""
 
     guide = ManualGuide(
@@ -128,12 +134,30 @@ def build_export_guide(items: list[dict[str, Any]], *, scale: int, dpi: int) -> 
         guide.step("กด Export แล้วตั้งชื่อไฟล์", tool=f"Export {name}", value=png["filename"], section=section)
         guide.step("เปิด PNG ใน Photoshop", tool="File ▸ Open…", value=png["filename"], section=section)
         guide.step("ตั้งความละเอียดโดยไม่เปลี่ยนจำนวนพิกเซล", tool="Image ▸ Image Size… ▸ Resample: off", value=f"Resolution = {dpi} Pixels/Inch", section=section)
-        guide.step("บันทึกเป็น PDF", tool="File ▸ Save a Copy… ▸ Photoshop PDF", value=pdf["filename"], section=section)
+        details = pdf.get("print")
+        if details is None:
+            guide.step("บันทึกเป็น PDF", tool="File ▸ Save a Copy… ▸ Photoshop PDF", value=pdf["filename"], section=section)
+            continue
+        if details["bleed_px"]:
+            guide.step("เพิ่มขอบตัดตกทุกด้าน", tool="Image ▸ Canvas Size… (Relative, Anchor: center)",
+                       value=f"+{2 * details['bleed_px']} px ทั้งกว้างและสูง ({details['bleed_mm']:g} mm ต่อด้าน)", section=section)
+            guide.step("เติมขอบตัดตกด้วยภาพสะท้อนของขอบเดิม", tool="Rectangular Marquee ▸ Copy ▸ Edit ▸ Transform ▸ Flip",
+                       value=f"แถบกว้าง {details['bleed_px']} px แต่ละด้าน", section=section)
+        if details["color"] == "cmyk":
+            icc = details["icc_profile"]
+            guide.step("แปลงเป็น CMYK ด้วยโปรไฟล์ของโรงพิมพ์", tool="Edit ▸ Convert to Profile…",
+                       value=f"{icc['description']}, Intent: Relative Colorimetric, Black Point Compensation: on", section=section)
+        guide.step("วางภาพใน InDesign ขนาดตัดจริง", tool="File ▸ New ▸ Document",
+                   value=f"{details['trim_size_mm'][0]}×{details['trim_size_mm'][1]} mm, Bleed {details['bleed_mm']:g} mm", section=section)
+        guide.step("ส่งออก PDF สำหรับพิมพ์", tool="File ▸ Export ▸ Adobe PDF (Print) ▸ Marks and Bleeds",
+                   value=("Crop Marks: on, " if details["crop_marks"] else "") + f"Use Document Bleed → {pdf['filename']}", section=section)
     guide.checks = [
         f"`{item['artifacts'][0]['filename']}` มีขนาด {item['artifacts'][0]['width']}×{item['artifacts'][0]['height']} px "
         f"และ PDF พิมพ์ได้ {item['artifacts'][1]['print_size_mm'][0]}×{item['artifacts'][1]['print_size_mm'][1]} mm"
         for item in items
     ]
+    if press is not None and not press.is_default:
+        guide.checks.append("เปิด PDF ใน Acrobat ▸ Print Production ▸ Output Preview: Trim/Bleed box ตรงขนาด และ (ถ้า CMYK) ไม่มีสี RGB")
     return guide
 
 
@@ -145,7 +169,14 @@ def _trace_failure(trace: TraceRecorder, out: Path, code: str) -> None:
         pass
 
 
-def export_batch(manifest_path: str | Path, output_dir: str | Path, *, scale: int = 3, dpi: int = 300) -> ExportResult:
+def export_batch(
+    manifest_path: str | Path,
+    output_dir: str | Path,
+    *,
+    scale: int = 3,
+    dpi: int = 300,
+    press: PrintProfile | None = None,
+) -> ExportResult:
     """Export every accepted item and trace the export job in ``output_dir``.
 
     ``trace.json``, ``MANUAL-STEPS.md``, and ``history.jsonl`` are written to
@@ -156,6 +187,13 @@ def export_batch(manifest_path: str | Path, output_dir: str | Path, *, scale: in
         raise ExportError(f"scale must be between {MIN_SCALE} and {MAX_SCALE}")
     if not MIN_DPI <= dpi <= MAX_DPI:
         raise ExportError(f"dpi must be between {MIN_DPI} and {MAX_DPI}")
+    if press is not None and press.is_default:
+        press = None
+    try:
+        cmyk = check_profile(press) if press is not None else None
+    except PrintError as exc:
+        raise ExportError(str(exc)) from exc
+    suffix = press.suffix(cmyk.sha256 if cmyk else None) if press is not None else ""
     source = Path(manifest_path)
     try:
         manifest_bytes = source.read_bytes()
@@ -169,15 +207,18 @@ def export_batch(manifest_path: str | Path, output_dir: str | Path, *, scale: in
     source_hash = _sha256(manifest_bytes)
     trace = TraceRecorder(
         tool_id=TOOL_ID,
-        job_id=f"{manifest.get('batch_id', 'batch')}-x{scale}-{dpi}dpi-{source_hash[:12]}",
+        job_id=f"{manifest.get('batch_id', 'batch')}-x{scale}-{dpi}dpi{'-' + suffix if suffix else ''}-{source_hash[:12]}",
         engine_version=ENGINE_VERSION,
-        recipe_version=EXPORT_RECIPE,
+        recipe_version=PRESS_RECIPE if press else EXPORT_RECIPE,
         schema_version="graphics-batch.v1",
     )
     trace.input_file("batch_manifest", source, role="source")
+    if cmyk is not None:
+        trace.input_file("cmyk_icc_profile", cmyk.path, role="color_profile")
     try:
         out.mkdir(parents=True, exist_ok=True)
-        return _export(manifest, source, out, scale=scale, dpi=dpi, source_hash=source_hash, trace=trace)
+        return _export(manifest, source, out, scale=scale, dpi=dpi, source_hash=source_hash, trace=trace,
+                       press=press, cmyk=cmyk, suffix=suffix)
     except BaseException as exc:
         _trace_failure(trace, out, type(exc).__name__)
         raise
@@ -192,6 +233,9 @@ def _export(
     dpi: int,
     source_hash: str,
     trace: TraceRecorder,
+    press: PrintProfile | None = None,
+    cmyk: CmykProfile | None = None,
+    suffix: str = "",
 ) -> ExportResult:
     exported: list[dict[str, Any]] = []
     for item in manifest.get("items", []):
@@ -212,10 +256,20 @@ def _export(
                 actual = image.size
             if actual != (width * scale, height * scale):
                 raise ExportError(f"{name}: rendered {actual[0]}x{actual[1]}, expected {width * scale}x{height * scale}")
-        with trace.step("render", "raster_pdf", file=Path(name).name, dpi=dpi):
-            pdf = _pdf_bytes(png, dpi)
+        details: dict[str, Any] | None = None
+        if press is None:
+            with trace.step("render", "raster_pdf", file=Path(name).name, dpi=dpi):
+                pdf = _pdf_bytes(png, dpi)
+        else:
+            with trace.step("render", "press_pdf", file=Path(name).name, dpi=dpi, bleed_mm=press.bleed_mm,
+                            crop_marks=press.crop_marks, color="cmyk" if cmyk else "rgb"):
+                try:
+                    pdf, details = press_pdf(png, dpi=dpi, profile=press, cmyk=cmyk, title=Path(name).stem)
+                except PrintError as exc:
+                    raise ExportError(f"{name}: {exc}") from exc
         stem = Path(name).stem
-        outputs = [(f"{stem}@{scale}x.png", "image/png", png), (f"{stem}-print.pdf", "application/pdf", pdf)]
+        pdf_name = f"{stem}-press-{suffix}.pdf" if press else f"{stem}-print.pdf"
+        outputs = [(f"{stem}@{scale}x.png", "image/png", png), (pdf_name, "application/pdf", pdf)]
         for filename, _, data in outputs:
             _atomic_write(out / filename, data)
         for filename, media_type, _ in outputs:
@@ -226,7 +280,8 @@ def _export(
             "artifacts": [
                 {"filename": filename, "media_type": media_type, "content_hash": _sha256(data), "byte_size": len(data),
                  "width": width * scale, "height": height * scale, "dpi": dpi,
-                 "print_size_mm": [round(width * scale / dpi * 25.4, 1), round(height * scale / dpi * 25.4, 1)]}
+                 "print_size_mm": [round(width * scale / dpi * 25.4, 1), round(height * scale / dpi * 25.4, 1)],
+                 **({"print": details} if details is not None and media_type == "application/pdf" else {})}
                 for filename, media_type, data in outputs
             ],
         })
@@ -234,23 +289,23 @@ def _export(
         raise ExportError("the batch has no accepted items to export")
     export_manifest = {
         "schema_version": "graphics-export.v1",
-        "export_id": f"{manifest.get('batch_id', 'batch')}-x{scale}-{dpi}dpi",
+        "export_id": f"{manifest.get('batch_id', 'batch')}-x{scale}-{dpi}dpi{'-' + suffix if suffix else ''}",
         "status": "accepted",
-        "recipe": EXPORT_RECIPE,
+        "recipe": PRESS_RECIPE if press else EXPORT_RECIPE,
         "scale": scale,
         "dpi": dpi,
         "source_manifest": {"filename": source.name, "content_hash": source_hash, "batch_id": manifest.get("batch_id")},
         "items": exported,
         "model_calls": 0,
     }
-    manifest_out = out / f"export-{source_hash[:12]}-x{scale}-{dpi}.json"
+    manifest_out = out / f"export-{source_hash[:12]}-x{scale}-{dpi}{'-' + suffix if suffix else ''}.json"
     _atomic_write(manifest_out, json.dumps(export_manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8"))
     trace.record_step("publish", "write_export_manifest", outputs=[manifest_out.name])
     try:
-        trace.finish(status="accepted", job_dir=out, output_root=out, guide=build_export_guide(exported, scale=scale, dpi=dpi))
+        trace.finish(status="accepted", job_dir=out, output_root=out, guide=build_export_guide(exported, scale=scale, dpi=dpi, press=press))
     except OSError:
         pass
     return ExportResult(manifest_out, len(exported))
 
 
-__all__ = ["ExportError", "ExportResult", "build_export_guide", "export_batch"]
+__all__ = ["ExportError", "ExportResult", "PrintProfile", "build_export_guide", "export_batch"]
