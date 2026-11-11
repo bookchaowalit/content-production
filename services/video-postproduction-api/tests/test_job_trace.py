@@ -70,8 +70,8 @@ class FakeEngine:
     duration: float = 29.75
     caption_text: str | None = None
 
-    def render(self, edl, *, input_path: Path, output_path: Path, caption_path: Path | None = None):
-        self.calls.append({"caption_path": caption_path})
+    def render(self, edl, *, input_path: Path, output_path: Path, caption_path: Path | None = None, plan=None):
+        self.calls.append({"caption_path": caption_path, "plan": plan})
         if caption_path is not None:
             self.caption_text = caption_path.read_text(encoding="utf-8")
         output_path.write_bytes(b"rendered-mp4-bytes")
@@ -219,7 +219,7 @@ def test_successful_render_writes_trace_manual_history_and_artifacts(studio):
     options = render_step["params"]["options"]
     assert options["c:v"] == "libx264" and options["pix_fmt"] == "yuv420p" and options["c:a"] == "aac"
     assert options["ss"] == "12.500" and options["t"] == "29.750"
-    assert options["vf"] == ["crop=ih*9/16:ih:(iw-ih*9/16)/2:0", "scale=1080:1920", "subtitles=<captions>"]
+    assert options["vf"] == ["crop=ih*9/16:ih:(iw-ih*9/16)/2:0", "scale=1080:1920", "setsar=1", "subtitles=<captions>"]
     assert str(storage.root) not in json.dumps(trace)
 
     files = {artifact["file"]: artifact for artifact in trace["artifacts"]}
@@ -301,13 +301,15 @@ def test_failed_render_records_trace_history_and_manual(studio):
     assert "transcript_not_ready" in manual
 
 
-def test_multi_clip_render_fails_but_leaves_editor_bundle(studio):
+def test_unrenderable_multi_clip_fails_but_leaves_editor_bundle(studio):
     asset = studio["asset"]
-    record = studio["add_edl"]([_segment(asset.id, 10.0, 20.0, "a"), _segment(asset.id, 60.0, 64.0, "b")])
+    mixed = _segment(asset.id, 60.0, 64.0, "b")
+    mixed["visual"] = {"kind": "a_roll", "reframe": None, "asset_refs": []}
+    record = studio["add_edl"]([_segment(asset.id, 10.0, 20.0, "a"), mixed])
 
     class CapabilityEngine(FakeEngine):
         def render(self, edl, **kwargs):
-            raise AssertionError("argv validation must reject multi-clip timelines before rendering")
+            raise AssertionError("argv validation must reject mixed-visual timelines before rendering")
 
     service = RenderService(studio["session"], storage=studio["storage"], engine=CapabilityEngine())
     with pytest.raises(RenderCapabilityError):
@@ -595,7 +597,9 @@ def test_export_service_writes_bundle_for_multi_clip_edl(studio):
     for name in ("trace.json", "MANUAL-STEPS.md", "edl.json", "timeline.edl", "timeline.fcpxml", "timeline.otio", "captions.srt"):
         assert (job_dir / name).is_file(), name
     srt = (job_dir / "captions.srt").read_text(encoding="utf-8")
-    assert "00:00:06,250 --> 00:00:10,250" in srt  # second clip's cue starts at its record position
+    # Clip a is frames 300-488 (16.25 s x 30 = 487.5, half up), so clip b starts at record
+    # frame 188 = 6.267 s, where the NLE and the concat render place it.
+    assert "00:00:06,267 --> 00:00:10,267" in srt
     trace_text = (job_dir / "trace.json").read_text(encoding="utf-8")
     assert CANARY not in trace_text
     history = read_history(_root(studio["storage"], studio["project"].id))

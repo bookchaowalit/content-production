@@ -8,6 +8,7 @@ from typing import Protocol
 
 from ..edl import EDLDocument
 from ..media.models import MediaMetadata
+from ..timeline import TimelinePlan
 
 
 class RenderProcessError(RuntimeError):
@@ -47,5 +48,6 @@ class RenderEngine(Protocol):
         input_path: Path,
         output_path: Path,
         caption_path: Path | None = None,
+        plan: TimelinePlan | None = None,
     ) -> RenderArtifact:
-        """Render and validate an output file."""
+        """Render and validate an output file (``plan`` is passed for multi-clip timelines)."""

@@ -111,6 +111,16 @@ class EDLResponse(BaseModel):
     updated_at: datetime
 
 
+class SilenceCutRequest(BaseModel):
+    """Options for ``POST /projects/{id}/edl/silence-cut`` (bounds checked by ``silence_cut``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_gap_s: float = 0.6
+    padding_s: float = 0.15
+    remove_fillers: bool = True
+
+
 class RenderRequest(BaseModel):
     edl_id: UUID | None = None
 

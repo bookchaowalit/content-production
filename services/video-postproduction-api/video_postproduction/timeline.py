@@ -382,7 +382,7 @@ def _reframe(edl: EDLDocument, source: SourceVideo) -> ReframePlan:
     width, height = edl.output.width, edl.output.height
     profile = edl.output.render_profile
     if profile == "vertical_centered":
-        filters: tuple[str, ...] = ("crop=ih*9/16:ih:(iw-ih*9/16)/2:0", f"scale={width}:{height}")
+        filters: tuple[str, ...] = ("crop=ih*9/16:ih:(iw-ih*9/16)/2:0", f"scale={width}:{height}", "setsar=1")
         if source.width is None or source.height is None:
             return ReframePlan(profile, width, height, filters, aspect_matches=width * 16 == height * 9)
         iw, ih = source.width, source.height

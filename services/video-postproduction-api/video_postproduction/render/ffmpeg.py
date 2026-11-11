@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
 from ..edl import EDLCapabilityError, EDLDocument, validate_edl
 from ..media.ffprobe import FFprobeMetadataReader, MediaProbeError
-from ..timeline import TimelinePlanError, loudness_from_operations
+from ..timeline import TimelinePlan, TimelinePlanError, loudness_from_operations
 from .base import (
     RenderArtifact,
     RenderCapabilityError,
@@ -31,16 +32,30 @@ def build_ffmpeg_argv(
     output_path: Path,
     caption_path: Path | None = None,
     executable: str = "ffmpeg",
+    plan: TimelinePlan | None = None,
 ) -> list[str]:
-    """Build an argv list; no shell syntax or interpolated command string is used."""
+    """Build an argv list; no shell syntax or interpolated command string is used.
+
+    One segment renders with input seeking (``-ss``/``-t``). Several segments of
+    one source need the :class:`TimelinePlan`: each clip is trimmed on the
+    plan's frames and the clips are concatenated before the reframe, caption
+    and loudness chain, so the render cuts on the frames the guide and the
+    interchange files name.
+    """
 
     try:
         validated = validate_edl(edl)
     except EDLCapabilityError as exc:
         raise RenderCapabilityError(str(exc)) from exc
     first = validated.timeline[0]
-    if len(validated.timeline) != 1:
-        raise RenderCapabilityError("V1B renderer supports one timeline segment")
+    if len(validated.timeline) > 1:
+        if plan is None:
+            raise RenderCapabilityError("a multi-clip render needs the timeline plan")
+        for segment in validated.timeline[1:]:
+            if segment.visual != first.visual:
+                raise RenderCapabilityError("every timeline segment must use the same visual instruction")
+            if segment.color.operations:
+                raise RenderCapabilityError("V1B renderer does not support color operations yet")
     if first.visual.kind != "a_roll" or first.visual.asset_refs:
         raise RenderCapabilityError("V1B renderer supports only the source A-roll segment")
     if first.color.operations:
@@ -56,7 +71,8 @@ def build_ffmpeg_argv(
             and (first.visual.reframe.mode != "center" or first.visual.reframe.aspect_ratio != "9:16")
         ):
             raise RenderCapabilityError("only center 9:16 reframe is supported in V1B")
-        filters = ["crop=ih*9/16:ih:(iw-ih*9/16)/2:0", f"scale={width}:{height}"]
+        # setsar=1: the even-width crop scaled to the output would otherwise keep a 404:405-style SAR.
+        filters = ["crop=ih*9/16:ih:(iw-ih*9/16)/2:0", f"scale={width}:{height}", "setsar=1"]
     elif first.visual.reframe is not None:
         raise RenderCapabilityError("source render profile cannot include a reframe instruction")
     else:
@@ -71,6 +87,17 @@ def build_ffmpeg_argv(
         filters.append(f"subtitles='{_filter_path(caption_path)}'")
         if caption_format not in {"srt", "ass"}:
             raise RenderCapabilityError(f"unsupported caption format: {caption_format}")
+    if len(validated.timeline) > 1:
+        assert plan is not None
+        return _concat_argv(
+            plan,
+            filters=filters,
+            loudness_filter=loudness.ffmpeg_filter() if loudness is not None else None,
+            sample_rate=loudness.output_sample_rate if loudness is not None else None,
+            input_path=input_path,
+            output_path=output_path,
+            executable=executable,
+        )
     duration = first.source.end - first.source.start
     # Single-pass EBU R128 loudnorm upsamples internally, so resample back to 48 kHz.
     audio_filters = (
@@ -109,6 +136,63 @@ def build_ffmpeg_argv(
     ]
 
 
+def _concat_argv(
+    plan: TimelinePlan,
+    *,
+    filters: list[str],
+    loudness_filter: str | None,
+    sample_rate: int | None,
+    input_path: Path,
+    output_path: Path,
+    executable: str,
+) -> list[str]:
+    """trim/atrim each clip on the plan's frames, concat, then the shared picture/sound chain."""
+
+    has_audio = plan.source.has_audio is not False
+    rate = plan.rate.exact
+    parts: list[str] = []
+    pads: list[str] = []
+    for index, clip in enumerate(plan.clips):
+        parts.append(
+            f"[0:v:0]trim=start_frame={clip.source_in_frame}:end_frame={clip.source_out_frame},"
+            f"setpts=PTS-STARTPTS[v{index}]"
+        )
+        pads.append(f"[v{index}]")
+        if has_audio:
+            start = float(clip.source_in_frame / rate)
+            end = float(clip.source_out_frame / rate)
+            parts.append(f"[0:a:0]atrim=start={start:.6f}:end={end:.6f},asetpts=PTS-STARTPTS[a{index}]")
+            pads.append(f"[a{index}]")
+    audio_flag = 1 if has_audio else 0
+    outputs = "[vcat][acat]" if has_audio else "[vcat]"
+    parts.append(f"{''.join(pads)}concat=n={len(plan.clips)}:v=1:a={audio_flag}{outputs}")
+    parts.append(f"[vcat]{','.join(filters)}[vout]")
+    if has_audio:
+        parts.append(f"[acat]{loudness_filter or 'anull'}[aout]")
+    maps = ["-map", "[vout]", *(["-map", "[aout]"] if has_audio else [])]
+    audio = (["-ar", str(sample_rate)] if sample_rate else []) + (["-c:a", "aac"] if has_audio else [])
+    return [
+        executable,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(input_path),
+        "-filter_complex",
+        ";".join(parts),
+        *maps,
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        *audio,
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+
+
 _FILTER_OPTIONS = frozenset({"-vf", "-af"})
 
 
@@ -129,6 +213,12 @@ def summarize_ffmpeg_argv(argv: list[str]) -> dict[str, object]:
             options[item.lstrip("-")] = [
                 "subtitles=<captions>" if part.startswith("subtitles=") else part
                 for part in following.split(",")
+            ]
+            position += 2
+        elif item == "-filter_complex" and following is not None:
+            options["filter_complex"] = [
+                re.sub(r"subtitles='(?:[^'\\]|\\.)*'", "subtitles=<captions>", part)
+                for part in following.split(";")
             ]
             position += 2
         elif item == "-map" and following is not None:
@@ -172,6 +262,7 @@ class FFmpegRenderEngine:
         input_path: Path,
         output_path: Path,
         caption_path: Path | None = None,
+        plan: TimelinePlan | None = None,
     ) -> RenderArtifact:
         argv = build_ffmpeg_argv(
             edl,
@@ -179,6 +270,7 @@ class FFmpegRenderEngine:
             output_path=output_path,
             caption_path=caption_path,
             executable=self.executable,
+            plan=plan,
         )
         try:
             result = subprocess.run(

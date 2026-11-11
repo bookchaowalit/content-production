@@ -1,0 +1,105 @@
+{
+  "opentimelineio": "0.18.1",
+  "timeline.otio": {
+    "clips": 3,
+    "source_frames": [
+      [
+        8,
+        101
+      ],
+      [
+        158,
+        215
+      ],
+      [
+        266,
+        350
+      ]
+    ],
+    "record_frames": [
+      [
+        0,
+        93
+      ],
+      [
+        93,
+        150
+      ],
+      [
+        150,
+        234
+      ]
+    ],
+    "matches_guide": true,
+    "duration_frames": 234
+  },
+  "timeline.edl": {
+    "clips": 3,
+    "source_frames": [
+      [
+        8,
+        101
+      ],
+      [
+        158,
+        215
+      ],
+      [
+        266,
+        350
+      ]
+    ],
+    "record_frames": [
+      [
+        0,
+        93
+      ],
+      [
+        93,
+        150
+      ],
+      [
+        150,
+        234
+      ]
+    ],
+    "matches_guide": true,
+    "duration_frames": 234
+  },
+  "collections": [
+    "timeline.fcpxml"
+  ],
+  "timeline.fcpxml": {
+    "clips": 3,
+    "source_frames": [
+      [
+        8,
+        101
+      ],
+      [
+        158,
+        215
+      ],
+      [
+        266,
+        350
+      ]
+    ],
+    "record_frames": [
+      [
+        0,
+        93
+      ],
+      [
+        93,
+        150
+      ],
+      [
+        150,
+        234
+      ]
+    ],
+    "matches_guide": true,
+    "duration_frames": 234
+  }
+}

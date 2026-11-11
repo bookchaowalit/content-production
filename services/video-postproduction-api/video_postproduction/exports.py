@@ -4,9 +4,9 @@ The export job writes ``edl.json``, ``timeline.edl`` (CMX3600),
 ``timeline.fcpxml`` (FCPXML 1.10), ``timeline.otio`` (OpenTimelineIO),
 ``captions.srt`` (when captions are enabled and a transcript exists), the
 DaVinci Resolve ``MANUAL-STEPS.md``, and ``trace.json``, and appends the
-project history. It works for timelines the V1B renderer cannot render yet
-(for example several confirmed highlight clips), so a person can finish the
-edit in DaVinci Resolve or Premiere Pro.
+project history. It also works for timelines the renderer refuses (for
+example mixed visual instructions), so a person can finish the edit in
+DaVinci Resolve or Premiere Pro.
 """
 
 from __future__ import annotations
