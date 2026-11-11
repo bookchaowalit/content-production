@@ -43,11 +43,57 @@ namespace BookProduction.Tests.PlayMode
                 Is.EqualTo(progress.HasCollectSound ? progress.TotalObjectives : 0)
             );
 
+            Assert.That(
+                progress.Events.Where(item => item.StartsWith("hazard_hit:", StringComparison.Ordinal)),
+                Is.EquivalentTo(input.Hazards.Select(item => "hazard_hit:" + item.id))
+            );
+
             CollectionTraceWriter.Write(progress.Events);
             Assert.That(
                 File.Exists(Path.Combine(Directory.GetCurrentDirectory(), ".book-production", "gameplay-trace.json")),
                 Is.True
             );
+        }
+
+        [UnityTest]
+        public IEnumerator HazardsPatrolTheirPathForwardAndBack()
+        {
+            TestGameInput input = SceneTestDriver.ReadGameInput();
+            SceneTestDriver.BeginLoadGeneratedScene(input.scene_id);
+            yield return null;
+
+            HazardPatrol[] patrols = UnityEngine.Object.FindObjectsByType<HazardPatrol>(FindObjectsSortMode.None);
+            Assert.That(patrols.Select(item => item.HazardId), Is.EquivalentTo(input.Hazards.Select(item => item.id)));
+            foreach (TestHazard hazard in input.Hazards)
+            {
+                HazardPatrol patrol = patrols.Single(item => item.HazardId == hazard.id);
+                Assert.That(patrol.SecondsPerCell, Is.EqualTo(hazard.seconds_per_cell).Within(1e-5f));
+                // Ping-pong: forward through the path, then back without repeating the ends.
+                var expected = new List<TestCell>(hazard.path);
+                for (int index = hazard.path.Length - 2; index > 0; index--)
+                {
+                    expected.Add(hazard.path[index]);
+                }
+                for (int step = 0; step <= expected.Count; step++)
+                {
+                    Vector2 cell = SceneTestDriver.CellCenterOf(expected[step % expected.Count], input.world);
+                    Vector2 actual = patrol.PositionAt(step * patrol.SecondsPerCell);
+                    Assert.That(Vector2.Distance(actual, cell), Is.LessThan(1e-4f), hazard.id + " step " + step);
+                }
+            }
+
+            for (int frame = 0; frame < 20; frame++)
+            {
+                yield return new WaitForFixedUpdate();
+            }
+            foreach (HazardPatrol patrol in patrols)
+            {
+                Rigidbody2D body = patrol.GetComponent<Rigidbody2D>();
+                Assert.That(body.bodyType, Is.EqualTo(RigidbodyType2D.Kinematic));
+                Assert.That(patrol.Elapsed, Is.GreaterThan(0f));
+                Vector2 expectedPosition = patrol.PositionAt(patrol.Elapsed);
+                Assert.That(Vector2.Distance(body.position, expectedPosition), Is.LessThan(input.world.tile_size * 0.05f), patrol.HazardId);
+            }
         }
     }
 
@@ -60,6 +106,18 @@ namespace BookProduction.Tests.PlayMode
         public TestWall[] walls;
         public TestObjective[] objectives;
         public TestExit exit;
+        public TestHazard[] hazards;
+
+        public TestHazard[] Hazards { get { return hazards ?? new TestHazard[0]; } }
+    }
+
+    [Serializable]
+    public sealed class TestHazard
+    {
+        public string id;
+        public TestCell[] path;
+        public int step_ticks;
+        public float seconds_per_cell;
     }
 
     [Serializable]
@@ -151,6 +209,16 @@ namespace BookProduction.Tests.PlayMode
                 yield break;
             }
 
+            // Hazards are switched off for the movement probes and switched on one at a
+            // time below, so each one is touched exactly once.
+            HazardPatrol[] hazards = UnityEngine.Object.FindObjectsByType<HazardPatrol>(FindObjectsSortMode.None)
+                .OrderBy(item => item.HazardId, StringComparer.Ordinal)
+                .ToArray();
+            foreach (HazardPatrol hazard in hazards)
+            {
+                hazard.gameObject.SetActive(false);
+            }
+
             var scriptedInput = new ScriptedInputSource();
             float testSpeed = input.world.tile_size / (Time.fixedDeltaTime * 4f);
             controller.Initialize(testSpeed, progress);
@@ -197,6 +265,20 @@ namespace BookProduction.Tests.PlayMode
                 float separation = Vector2.Dot(blocker - body.position, collision.direction);
                 Assert.That(separation, Is.GreaterThan(input.world.tile_size * 0.7f));
                 Assert.That(separation, Is.LessThan(input.world.tile_size * 0.98f));
+            }
+
+            foreach (HazardPatrol hazard in hazards)
+            {
+                hazard.gameObject.SetActive(true);
+                yield return new WaitForFixedUpdate();
+                int hitsBefore = progress.HazardHitCount;
+                body.position = hazard.GetComponent<Rigidbody2D>().position;
+                Physics2D.SyncTransforms();
+                yield return new WaitForFixedUpdate();
+                yield return new WaitForFixedUpdate();
+                Assert.That(progress.HazardHitCount, Is.EqualTo(hitsBefore + 1), hazard.HazardId);
+                Assert.That(Vector2.Distance(body.position, controller.SpawnPosition), Is.LessThan(0.01f), hazard.HazardId);
+                hazard.gameObject.SetActive(false);
             }
 
             foreach (TestObjective objective in input.objectives.OrderBy(item => item.id, StringComparer.Ordinal))
@@ -296,6 +378,11 @@ namespace BookProduction.Tests.PlayMode
         private static Vector2Int ToGridCell(TestCell cell)
         {
             return new Vector2Int(cell.x, cell.y);
+        }
+
+        public static Vector2 CellCenterOf(TestCell cell, TestWorld world)
+        {
+            return CellCenter(cell, world);
         }
 
         private static Vector2 CellCenter(TestCell cell, TestWorld world)

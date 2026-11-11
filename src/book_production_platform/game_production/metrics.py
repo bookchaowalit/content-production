@@ -8,6 +8,13 @@ the exit with the fewest grid steps: exact (Held-Karp) for up to
 a player who walks the grid route; the Unity controller also moves diagonally,
 so a real run can be shorter. The difficulty band is a documented heuristic,
 not a playtest result.
+
+With moving hazards (GameIR v3) the same route order is replayed tick by tick
+on the hazard timeline (``game_ir.hazards``): ``safe_route_ticks`` counts the
+ticks, including waits, of the earliest hazard-free run in that order, and
+``hazard_wait_ticks`` the ticks spent waiting or detouring. Those keys and the
+hazard part of the score only exist for levels with hazards, so v1/v2 metrics
+are unchanged.
 """
 
 from __future__ import annotations
@@ -17,6 +24,7 @@ from dataclasses import dataclass
 from itertools import combinations, pairwise
 
 from book_production_platform.game_ir import Cell, GameIR, validate_game_ir
+from book_production_platform.game_ir.hazards import hazards_period_ticks, safe_run
 
 METRICS_PROFILE = "game-level-metrics.v1"
 EXACT_ROUTE_LIMIT = 12
@@ -43,9 +51,14 @@ class LevelMetrics:
     detour_ratio: float
     difficulty_score: float
     difficulty_band: str
+    hazard_count: int = 0
+    hazard_period_ticks: int = 0
+    safe_route_ticks: int = 0
+    hazard_wait_ticks: int = 0
+    safe_route_cells: tuple[Cell, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        values: dict[str, object] = {
             "profile": self.profile,
             "world_cells": self.world_cells,
             "wall_cells": self.wall_cells,
@@ -64,6 +77,15 @@ class LevelMetrics:
             "difficulty_score": self.difficulty_score,
             "difficulty_band": self.difficulty_band,
         }
+        if self.hazard_count:
+            values.update({
+                "hazard_count": self.hazard_count,
+                "hazard_period_ticks": self.hazard_period_ticks,
+                "safe_route_ticks": self.safe_route_ticks,
+                "hazard_wait_ticks": self.hazard_wait_ticks,
+                "safe_route_seconds": round(self.safe_route_ticks * self.estimated_seconds / self.route_steps, 2) if self.route_steps else 0.0,
+            })
+        return values
 
 
 def _neighbors(cell: Cell, width: int, height: int, walls: frozenset[Cell]) -> list[Cell]:
@@ -175,6 +197,18 @@ def level_metrics(ir: GameIR) -> LevelMetrics:
         + min(1.0, len(walls) / max(1, width * height) / 0.4) * 10,
         1,
     )
+    hazard_period, safe_ticks, waits = 0, 0, 0
+    safe_cells: list[Cell] = []
+    if level.hazards:
+        run = safe_run(level, order=[node - 1 for node in order]) or safe_run(level)
+        if run is None:  # pragma: no cover - validate_game_ir already proved a safe run exists
+            raise ValueError("unsafe_hazard_schedule")
+        hazard_period, safe_ticks = hazards_period_ticks(level.hazards), run.total_ticks
+        waits = safe_ticks - steps
+        score = round(min(100.0, score + min(1.0, len(level.hazards) / 4) * 10 + min(1.0, max(0, waits) / 40) * 10), 1)
+        safe_cells = [level.player.spawn]
+        for leg in run.legs:
+            safe_cells.extend(leg.cells[1:])
     band = "easy" if score < 30 else "medium" if score < 55 else "hard"
     return LevelMetrics(
         profile=METRICS_PROFILE,
@@ -195,6 +229,11 @@ def level_metrics(ir: GameIR) -> LevelMetrics:
         detour_ratio=detour,
         difficulty_score=score,
         difficulty_band=band,
+        hazard_count=len(level.hazards),
+        hazard_period_ticks=hazard_period,
+        safe_route_ticks=safe_ticks,
+        hazard_wait_ticks=waits,
+        safe_route_cells=tuple(safe_cells),
     )
 
 

@@ -22,6 +22,7 @@ namespace BookProduction.Editor
         public bool TrustedTemplateNoNetworkReferences;
         public int MusicSourceCount;
         public bool CollectSoundConfigured;
+        public int HazardCount;
 
         public bool IsValid
         {
@@ -85,7 +86,15 @@ namespace BookProduction.Editor
                 MusicSourceCount = audioSources.Count(source =>
                     source.gameObject.name == SceneCompiler.MusicObjectName
                     && source.gameObject.activeSelf && source.loop && source.playOnAwake && source.clip != null),
-                CollectSoundConfigured = progress != null && progress.HasCollectSound
+                CollectSoundConfigured = progress != null && progress.HasCollectSound,
+                HazardCount = identities.Count(identity =>
+                    identity.EntityType == "hazard"
+                    && identity.GetComponent<HazardPatrol>() != null
+                    && identity.GetComponent<HazardPatrol>().Waypoints.Count >= 2
+                    && identity.GetComponent<CircleCollider2D>() != null
+                    && identity.GetComponent<CircleCollider2D>().isTrigger
+                    && identity.GetComponent<Rigidbody2D>() != null
+                    && identity.GetComponent<Rigidbody2D>().bodyType == RigidbodyType2D.Kinematic)
             };
             if (!report.IsValid)
             {
@@ -109,6 +118,7 @@ namespace BookProduction.Editor
                 typeof(TopDownPlayerController),
                 typeof(Collectible),
                 typeof(ExitGate),
+                typeof(HazardPatrol),
                 typeof(AudioSource),
                 typeof(AudioListener)
             };

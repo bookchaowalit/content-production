@@ -22,14 +22,18 @@ _COLORS = {
     "objective": "#ffc23f",
     "exit": "#4fd18b",
     "route": "#ff5d73",
+    "hazard": "#d6409f",
 }
 
 
 def ascii_map(ir: GameIR) -> str:
-    """``#`` wall, ``P`` player spawn, ``o`` objective, ``E`` exit, ``.`` floor; top row first."""
+    """``#`` wall, ``P`` player spawn, ``o`` objective, ``E`` exit, ``~`` hazard path, ``.`` floor; top row first."""
 
     level = validate_game_ir(ir)
     grid = [["." for _ in range(level.world.width)] for _ in range(level.world.height)]
+    for hazard in level.hazards:
+        for x, y in hazard.path:
+            grid[y][x] = "~"
     for wall in level.walls:
         for x, y in wall.cells:
             grid[y][x] = "#"
@@ -76,6 +80,17 @@ def render_level_svg(ir: GameIR, metrics: LevelMetrics | None = None) -> bytes:
             x, y = corner(cell)
             out.append(f'<rect x="{x}" y="{y}" width="{_CELL}" height="{_CELL}" data-wall="{escape(wall.id)}" data-cell="{cell[0]},{cell[1]}"/>')
     out.append("</g>")
+    if level.hazards:
+        out.append(f'<g id="hazards" stroke="{_COLORS["hazard"]}" fill="{_COLORS["hazard"]}">')
+        for hazard in level.hazards:
+            path = " ".join(center(cell) for cell in hazard.path)
+            out.append(
+                f'<polyline points="{path}" fill="none" stroke-width="{_CELL // 2}" stroke-opacity="0.35" stroke-linecap="round" '
+                f'stroke-linejoin="round" data-hazard="{escape(hazard.id)}" data-step-ticks="{hazard.step_ticks}"/>'
+            )
+            hx, hy = corner(hazard.path[0])
+            out.append(f'<circle cx="{hx + _CELL // 2}" cy="{hy + _CELL // 2}" r="{_CELL // 4}" stroke="none" data-hazard-start="{escape(hazard.id)}"/>')
+        out.append("</g>")
     points = " ".join(center(cell) for cell in route)
     out.append(f'<polyline id="route" points="{points}" fill="none" stroke="{_COLORS["route"]}" stroke-width="3" stroke-dasharray="6 4"/>')
     out.append('<g id="entities" font-family="DejaVu Sans, Arial, sans-serif" font-size="10" text-anchor="middle">')

@@ -1,0 +1,390 @@
+{
+  "$defs": {
+    "ExitIR": {
+      "additionalProperties": false,
+      "properties": {
+        "cell": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Cell",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "cell"
+      ],
+      "title": "ExitIR",
+      "type": "object"
+    },
+    "ObjectiveIR": {
+      "additionalProperties": false,
+      "properties": {
+        "cell": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Cell",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "cell"
+      ],
+      "title": "ObjectiveIR",
+      "type": "object"
+    },
+    "PlayerIR": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "spawn": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Spawn",
+          "type": "array"
+        },
+        "speed": {
+          "maximum": 12.0,
+          "minimum": 0.5,
+          "title": "Speed",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "spawn",
+        "speed"
+      ],
+      "title": "PlayerIR",
+      "type": "object"
+    },
+    "WallIR": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Cells",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "cells"
+      ],
+      "title": "WallIR",
+      "type": "object"
+    },
+    "WorldIR": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "maximum": 64,
+          "minimum": 3,
+          "title": "Height",
+          "type": "integer"
+        },
+        "tile_size": {
+          "maximum": 4.0,
+          "minimum": 0.25,
+          "title": "Tile Size",
+          "type": "number"
+        },
+        "width": {
+          "maximum": 64,
+          "minimum": 3,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "tile_size"
+      ],
+      "title": "WorldIR",
+      "type": "object"
+    },
+    "AssetIR": {
+      "additionalProperties": false,
+      "description": "One audio file inside the build's asset root, pinned by content hash.",
+      "properties": {
+        "asset_id": {
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "type": "string",
+          "title": "Asset Id"
+        },
+        "kind": {
+          "const": "audio",
+          "title": "Kind",
+          "type": "string"
+        },
+        "filename": {
+          "maxLength": 68,
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,62}\\.(?:wav|ogg)$",
+          "title": "Filename",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "kind",
+        "filename",
+        "sha256"
+      ],
+      "title": "AssetIR",
+      "type": "object"
+    },
+    "AudioIR": {
+      "additionalProperties": false,
+      "properties": {
+        "music": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Music"
+        },
+        "collect_sfx": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Collect Sfx"
+        }
+      },
+      "title": "AudioIR",
+      "type": "object"
+    },
+    "HazardIR": {
+      "title": "HazardIR",
+      "description": "Patrols path forward and back (ping-pong), one cell every step_ticks ticks; a tick is tile_size / player.speed seconds. Path cells are 4-neighbours, unique, open, and not the spawn, an objective or the exit.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "path",
+        "step_ticks"
+      ],
+      "properties": {
+        "id": {
+          "maxLength": 64,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "array",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "title": "Cell",
+            "type": "array"
+          },
+          "minItems": 2,
+          "maxItems": 16
+        },
+        "step_ticks": {
+          "title": "Step Ticks",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        }
+      }
+    }
+  },
+  "$id": "https://book-production-platform.local/schemas/game-ir.v3.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "exit": {
+      "$ref": "#/$defs/ExitIR"
+    },
+    "objectives": {
+      "items": {
+        "$ref": "#/$defs/ObjectiveIR"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Objectives",
+      "type": "array"
+    },
+    "palette": {
+      "const": "palette-minimal.v1",
+      "default": "palette-minimal.v1",
+      "title": "Palette",
+      "type": "string"
+    },
+    "player": {
+      "$ref": "#/$defs/PlayerIR"
+    },
+    "scene_id": {
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "title": "Scene Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "game-ir.v3",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "template": {
+      "const": "top-down-collect.v1",
+      "title": "Template",
+      "type": "string"
+    },
+    "walls": {
+      "items": {
+        "$ref": "#/$defs/WallIR"
+      },
+      "title": "Walls",
+      "type": "array"
+    },
+    "world": {
+      "$ref": "#/$defs/WorldIR"
+    },
+    "assets": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AssetIR"
+      },
+      "maxItems": 4,
+      "title": "Assets",
+      "type": "array"
+    },
+    "audio": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AudioIR"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "hazards": {
+      "title": "Hazards",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/HazardIR"
+      },
+      "maxItems": 8,
+      "default": []
+    }
+  },
+  "required": [
+    "schema_version",
+    "scene_id",
+    "template",
+    "world",
+    "player",
+    "walls",
+    "objectives",
+    "exit"
+  ],
+  "title": "GameIR v3",
+  "type": "object",
+  "x-maxBytes": 262144,
+  "x-assetLimits": {
+    "audio_max_bytes": 20971520,
+    "audio_max_seconds": 600,
+    "audio_formats": [
+      "wav",
+      "ogg"
+    ]
+  },
+  "x-hazardLimits": {
+    "max_world_side": 32,
+    "max_period_ticks": 240,
+    "requires_safe_collect_all_run": true
+  }
+}

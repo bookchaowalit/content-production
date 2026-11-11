@@ -376,7 +376,7 @@ def ground_layout(parsed: Mapping[str, Any], brief: str, *, scene_id: str = "bri
         return _rejected(error.code, "game_ir")
     except ValidationError:
         return _rejected("invalid_game_ir", "game_ir")
-    return GameBriefResult(status="complete", game_ir=validated.model_dump(mode="json", exclude={"assets", "audio"}))
+    return GameBriefResult(status="complete", game_ir=validated.model_dump(mode="json", exclude={"assets", "audio", "hazards"}))
 
 
 __all__ = [

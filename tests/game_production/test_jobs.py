@@ -87,6 +87,7 @@ def install_fake_stages(
                 "trusted_template_no_network_references": True,
                 "music_source_count": 1 if worker_input.get("audio", {}).get("music") else 0,
                 "collect_sound_configured": bool(worker_input.get("audio", {}).get("collect_sfx")),
+                "hazard_count": len(worker_input.get("hazards", [])),
             }
             (private_root / "worker-report.json").write_text(json.dumps(report), encoding="utf-8")
         if stage in {"editmode", "playmode"}:
@@ -99,6 +100,7 @@ def install_fake_stages(
         if stage == "playmode":
             worker_input = json.loads((private_root / "worker-input.json").read_text(encoding="utf-8"))
             events = [f"exit_blocked:{worker_input['exit']['id']}", "player_moved"]
+            events.extend(f"hazard_hit:{item['id']}" for item in sorted(worker_input.get("hazards", []), key=lambda item: item["id"]))
             events.extend(
                 f"objective_collected:{item['id']}"
                 for item in sorted(worker_input["objectives"], key=lambda item: item["id"])

@@ -125,6 +125,23 @@ def _durable_write(path: Path, content: bytes) -> None:
         raise GameJobError("publication_failed", "Job artifact could not be flushed") from error
 
 
+COMPOSER_TEMPLATE_SCENE = TEMPLATE_PROJECT / "Assets" / "BookProduction" / "Source" / "scene-composer-template.unity"
+
+
+def template_has_hazard_slots(template_scene: Path = COMPOSER_TEMPLATE_SCENE) -> bool:
+    """True once the composer template scene was rebuilt with the GameIR v3 hazard slots.
+
+    The scene file is only produced by Unity (``SceneCompiler.BuildComposerTemplate``).
+    Until it carries ``hazard-slot`` entities a v3 level with hazards is refused here
+    with a stable code instead of failing inside Unity.
+    """
+
+    try:
+        return b"hazard-slot-000" in template_scene.read_bytes()
+    except OSError:
+        return False
+
+
 def _read_game_ir(game_path: Path) -> tuple[GameIR, bytes]:
     source = Path(game_path).expanduser()
     if source.is_symlink():
@@ -881,6 +898,11 @@ def _compose_game_scene(
     deadline = job_started + timeout_s
     game_ir, source_bytes = _read_game_ir(game_path)
     session.ir = game_ir
+    if game_ir.hazards and not template_has_hazard_slots():
+        raise GameJobError(
+            "unsupported_game_feature",
+            "The Unity composer template has no hazard slots yet; rebuild it with BuildComposerTemplate",
+        )
     trace.record_step(
         "validate", "parse_and_validate_game_ir", schema=game_ir.schema_version, template=game_ir.template,
         world={"width": game_ir.world.width, "height": game_ir.world.height, "tile_size": game_ir.world.tile_size},

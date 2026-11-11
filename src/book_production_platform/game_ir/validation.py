@@ -5,10 +5,24 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import deque
+from itertools import pairwise
 from pathlib import PurePosixPath
 
 from .errors import GameInputError
-from .models import GAME_IR_SCHEMA_VERSION, AssetIR, Cell, GameIR, WorldIR
+from .hazards import (
+    MAX_HAZARD_PERIOD_TICKS,
+    MAX_HAZARD_WORLD_SIDE,
+    hazards_period_ticks,
+    safe_run,
+)
+from .models import (
+    GAME_IR_SCHEMA_VERSION,
+    GAME_IR_V3_SCHEMA_VERSION,
+    AssetIR,
+    Cell,
+    GameIR,
+    WorldIR,
+)
 
 MAX_GAME_WALL_CELLS = 192
 MAX_GAME_ENTITIES = 256
@@ -23,6 +37,7 @@ def collect_entity_ids(ir: GameIR) -> tuple[str, ...]:
         *(wall.id for wall in ir.walls),
         *(objective.id for objective in ir.objectives),
         ir.exit.id,
+        *(hazard.id for hazard in ir.hazards),
     )
 
 
@@ -61,13 +76,17 @@ def canonicalize_game_ir(ir: GameIR) -> GameIR:
     )
     objectives = tuple(sorted(ir.objectives, key=lambda item: item.id))
     assets = tuple(sorted(ir.assets, key=lambda item: item.asset_id))
-    return ir.model_copy(update={"walls": walls, "objectives": objectives, "assets": assets})
+    # A hazard's path order is its motion, so only the hazards themselves are sorted.
+    hazards = tuple(sorted(ir.hazards, key=lambda item: item.id))
+    return ir.model_copy(update={"walls": walls, "objectives": objectives, "assets": assets, "hazards": hazards})
 
 
 def _json_view(ir: GameIR) -> dict[str, object]:
     """JSON projection; v1 omits the v2-only fields so its bytes never change."""
     if ir.schema_version == GAME_IR_SCHEMA_VERSION:
-        return ir.model_dump(mode="json", exclude={"assets", "audio"})
+        return ir.model_dump(mode="json", exclude={"assets", "audio", "hazards"})
+    if ir.schema_version != GAME_IR_V3_SCHEMA_VERSION:
+        return ir.model_dump(mode="json", exclude={"hazards"})
     return ir.model_dump(mode="json")
 
 
@@ -111,7 +130,28 @@ def validate_game_ir(ir: GameIR) -> GameIR:
     if not goals <= reachable:
         raise GameInputError("invalid_game_geometry")
 
+    if ir.hazards:
+        _validate_hazards(ir, wall_cell_set, set(occupied_cells))
     return canonicalize_game_ir(ir)
+
+
+def _validate_hazards(ir: GameIR, walls: set[Cell], occupied: set[Cell]) -> None:
+    """Hazard paths stay on open, unoccupied cells and a hazard-free collect-all run exists."""
+
+    for hazard in ir.hazards:
+        path = hazard.path
+        if len(set(path)) != len(path) or any(not _within_world(cell, ir.world) for cell in path):
+            raise GameInputError("invalid_game_geometry")
+        if any(abs(a[0] - b[0]) + abs(a[1] - b[1]) != 1 for a, b in pairwise(path)):
+            raise GameInputError("invalid_game_geometry")
+        if walls.intersection(path) or occupied.intersection(path):
+            raise GameInputError("invalid_game_geometry")
+    if max(ir.world.width, ir.world.height) > MAX_HAZARD_WORLD_SIDE:
+        raise GameInputError("resource_cap_exceeded")
+    if hazards_period_ticks(ir.hazards) > MAX_HAZARD_PERIOD_TICKS:
+        raise GameInputError("resource_cap_exceeded")
+    if safe_run(ir) is None:
+        raise GameInputError("unsafe_hazard_schedule")
 
 
 def canonical_game_ir_bytes(ir: GameIR) -> bytes:
@@ -163,6 +203,16 @@ def worker_dto_with_cell_objects(ir: GameIR) -> dict[str, object]:
         ],
         "exit": {"id": ir.exit.id, "cell": _cell_object(ir.exit.cell)},
     }
+    if ir.schema_version == GAME_IR_V3_SCHEMA_VERSION:
+        dto["hazards"] = [
+            {
+                "id": hazard.id,
+                "path": [_cell_object(cell) for cell in hazard.path],
+                "step_ticks": hazard.step_ticks,
+                "seconds_per_cell": hazard.step_ticks * ir.world.tile_size / ir.player.speed,
+            }
+            for hazard in ir.hazards
+        ]
     if ir.schema_version != GAME_IR_SCHEMA_VERSION:
         audio = ir.audio
         dto["assets"] = [

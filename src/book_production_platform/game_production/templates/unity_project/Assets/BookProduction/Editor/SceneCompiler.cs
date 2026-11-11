@@ -24,6 +24,7 @@ namespace BookProduction.Editor
         public ExitDTO exit;
         public AssetDTO[] assets;
         public AudioDTO audio;
+        public HazardDTO[] hazards;
     }
 
     [Serializable] public sealed class AssetDTO { public string asset_id; public string kind; public string filename; public string sha256; public string unity_path; }
@@ -34,6 +35,7 @@ namespace BookProduction.Editor
     [Serializable] public sealed class WallDTO { public string id; public CellDTO[] cells; }
     [Serializable] public sealed class ObjectiveDTO { public string id; public CellDTO cell; }
     [Serializable] public sealed class ExitDTO { public string id; public CellDTO cell; }
+    [Serializable] public sealed class HazardDTO { public string id; public CellDTO[] path; public int step_ticks; public float seconds_per_cell; }
 
     [Serializable]
     public sealed class WorkerReport
@@ -51,6 +53,7 @@ namespace BookProduction.Editor
         public bool trusted_template_no_network_references;
         public int music_source_count;
         public bool collect_sound_configured;
+        public int hazard_count;
     }
 
     public static class SceneCompiler
@@ -62,6 +65,8 @@ namespace BookProduction.Editor
         private const string ComposerTemplatePath = "Assets/BookProduction/Source/scene-composer-template.unity";
         private const int WallSlotCount = 192;
         private const int ObjectiveSlotCount = 32;
+        private const int HazardSlotCount = 8;
+        private const int HazardPathLimit = 16;
 
         public static string GeneratedScenePath
         {
@@ -78,6 +83,7 @@ namespace BookProduction.Editor
             PrepareSpriteImport("wall");
             PrepareSpriteImport("objective");
             PrepareSpriteImport("exit");
+            PrepareSpriteImport("hazard");
             AssetDatabase.Refresh();
 
             string scenePath = GeneratedScenePath;
@@ -105,6 +111,7 @@ namespace BookProduction.Editor
             PrepareSpriteImport("wall");
             PrepareSpriteImport("objective");
             PrepareSpriteImport("exit");
+            PrepareSpriteImport("hazard");
             AssetDatabase.Refresh();
 
             var world = new WorldDTO { width = 8, height = 6, tile_size = 1f };
@@ -165,6 +172,22 @@ namespace BookProduction.Editor
             exit.AddComponent<ExitGate>().Initialize("exit-slot", progress);
             exit.SetActive(false);
 
+            // GameIR v3 hazard slots: kinematic trigger bodies driven by HazardPatrol.
+            for (int index = 0; index < HazardSlotCount; index++)
+            {
+                string slotId = "hazard-slot-" + index.ToString("D3");
+                var hazard = CreateEntity("HazardSlot-" + index.ToString("D3"), slotId, "hazard-slot", new CellDTO(), world, "hazard");
+                Rigidbody2D hazardBody = hazard.AddComponent<Rigidbody2D>();
+                hazardBody.bodyType = RigidbodyType2D.Kinematic;
+                hazardBody.gravityScale = 0f;
+                hazardBody.interpolation = RigidbodyInterpolation2D.Interpolate;
+                CircleCollider2D hazardCollider = hazard.AddComponent<CircleCollider2D>();
+                hazardCollider.radius = 0.3f;
+                hazardCollider.isTrigger = true;
+                hazard.AddComponent<HazardPatrol>().Initialize(slotId, new Vector2[0], 1f, progress);
+                hazard.SetActive(false);
+            }
+
             Directory.CreateDirectory(Path.GetDirectoryName(ComposerTemplatePath));
             EditorSceneManager.SaveScene(scene, ComposerTemplatePath);
             WriteStableSceneMeta(ComposerTemplatePath, "scene-composer-template");
@@ -190,7 +213,7 @@ namespace BookProduction.Editor
 
         private static void ValidateWorkerInput(UnityWorkerIR input)
         {
-            if ((input.schema_version != "game-ir.v1" && input.schema_version != "game-ir.v2")
+            if ((input.schema_version != "game-ir.v1" && input.schema_version != "game-ir.v2" && input.schema_version != "game-ir.v3")
                 || input.template != "top-down-collect.v1"
                 || input.palette != "palette-minimal.v1"
                 || !Regex.IsMatch(input.scene_id, "^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -227,6 +250,51 @@ namespace BookProduction.Editor
                 throw new InvalidDataException("worker_input_invalid");
             }
             ValidateAudioInput(input);
+            ValidateHazardInput(input);
+        }
+
+        private static void ValidateHazardInput(UnityWorkerIR input)
+        {
+            HazardDTO[] hazards = input.hazards ?? new HazardDTO[0];
+            if (input.schema_version != "game-ir.v3")
+            {
+                if (hazards.Length > 0)
+                {
+                    throw new InvalidDataException("worker_input_invalid");
+                }
+                return;
+            }
+            if (hazards.Length > HazardSlotCount)
+            {
+                throw new InvalidDataException("worker_input_invalid");
+            }
+            foreach (HazardDTO hazard in hazards)
+            {
+                if (hazard == null
+                    || hazard.id == null
+                    || !Regex.IsMatch(hazard.id, "^[a-z0-9]+(?:-[a-z0-9]+)*$")
+                    || hazard.path == null
+                    || hazard.path.Length < 2 || hazard.path.Length > HazardPathLimit
+                    || hazard.path.Any(cell => cell == null)
+                    || hazard.step_ticks < 1 || hazard.step_ticks > 8
+                    || !(hazard.seconds_per_cell > 0f))
+                {
+                    throw new InvalidDataException("worker_input_invalid");
+                }
+                for (int index = 1; index < hazard.path.Length; index++)
+                {
+                    CellDTO a = hazard.path[index - 1];
+                    CellDTO b = hazard.path[index];
+                    if (Math.Abs(a.x - b.x) + Math.Abs(a.y - b.y) != 1)
+                    {
+                        throw new InvalidDataException("worker_input_invalid");
+                    }
+                }
+            }
+            if (hazards.Select(item => item.id).Distinct(StringComparer.Ordinal).Count() != hazards.Length)
+            {
+                throw new InvalidDataException("worker_input_invalid");
+            }
         }
 
         private static void ValidateAudioInput(UnityWorkerIR input)
@@ -460,7 +528,9 @@ namespace BookProduction.Editor
             }
             ConfigureEntity(player, "Player-" + input.player.id, input.player.id, "player", input.player.spawn, input.world, "player", 1);
             player.GetComponent<BoxCollider2D>().size = Vector2.one * 0.72f;
-            player.GetComponent<TopDownPlayerController>().Initialize(input.player.speed, progress);
+            TopDownPlayerController controller = player.GetComponent<TopDownPlayerController>();
+            controller.Initialize(input.player.speed, progress);
+            controller.SetSpawn(CellCenter(input.player.spawn, input.world));
             player.gameObject.SetActive(true);
 
             SceneEntityIdentity[] wallSlots = FindSlots(scene, "wall-slot");
@@ -520,6 +590,23 @@ namespace BookProduction.Editor
             exitCollider.isTrigger = true;
             exit.GetComponent<ExitGate>().Initialize(input.exit.id, progress);
             exit.gameObject.SetActive(true);
+
+            SceneEntityIdentity[] hazardSlots = FindSlots(scene, "hazard-slot");
+            HazardDTO[] hazards = (input.hazards ?? new HazardDTO[0]).OrderBy(item => item.id, StringComparer.Ordinal).ToArray();
+            if (hazards.Length > hazardSlots.Length)
+            {
+                throw new InvalidDataException("composer_hazard_slots_exceeded");
+            }
+            for (int index = 0; index < hazards.Length; index++)
+            {
+                HazardDTO hazard = hazards[index];
+                SceneEntityIdentity slot = hazardSlots[index];
+                ConfigureEntity(slot, "Hazard-" + hazard.id, hazard.id, "hazard", hazard.path[0], input.world, "hazard", 3);
+                Vector2[] waypoints = hazard.path.Select(cell => (Vector2)CellCenter(cell, input.world)).ToArray();
+                slot.GetComponent<HazardPatrol>().Initialize(hazard.id, waypoints, hazard.seconds_per_cell, progress);
+                slot.gameObject.SetActive(true);
+            }
+            DestroyUnusedSlots(hazardSlots, hazards.Length);
         }
 
         private static SceneEntityIdentity[] FindSlots(Scene scene, string entityType)
@@ -647,7 +734,8 @@ namespace BookProduction.Editor
                 disallowed_component_count = verification.DisallowedComponentCount,
                 trusted_template_no_network_references = verification.TrustedTemplateNoNetworkReferences,
                 music_source_count = verification.MusicSourceCount,
-                collect_sound_configured = verification.CollectSoundConfigured
+                collect_sound_configured = verification.CollectSoundConfigured,
+                hazard_count = verification.HazardCount
             };
             File.WriteAllText(Path.Combine(folder, "worker-report.json"), JsonUtility.ToJson(report, true));
             if (!verification.IsValid)

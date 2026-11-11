@@ -26,6 +26,7 @@ namespace BookProduction.Runtime
             isWon = false;
             movementRecorded = false;
             CollectSoundCount = 0;
+            HazardHitCount = 0;
         }
 
         public bool TryCollect(string id)
@@ -64,6 +65,14 @@ namespace BookProduction.Runtime
 
             isWon = true;
             Events.Add("game_won:" + exitId);
+        }
+
+        public int HazardHitCount { get; private set; }
+
+        public void RecordHazardHit(string hazardId)
+        {
+            HazardHitCount += 1;
+            Events.Add("hazard_hit:" + hazardId);
         }
 
         internal void RecordPlayerMoved()
