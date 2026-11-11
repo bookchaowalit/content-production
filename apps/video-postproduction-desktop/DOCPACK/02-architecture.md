@@ -58,7 +58,7 @@ stateDiagram-v2
 
 ## Tech stack
 
-- Electron 44.4.5, Electron Forge 7.11.2 + `@electron-forge/maker-squirrel`, `electron-squirrel-startup`
+- Electron 44.9.1, Electron Forge 8.0.1 (Node.js ≥ 22.13) + `@electron-forge/maker-squirrel`, `electron-squirrel-startup`; the Windows installer build runs in `.github/workflows/desktop-package.yml`
 - JavaScript (CommonJS) ตรวจ type ด้วย TypeScript 7 (`tsc --noEmit`)
 - ทดสอบด้วย `node --test` และ smoke ด้วย Electron (`smoke:launcher`) และ Docker (`smoke:runtime`)
 
