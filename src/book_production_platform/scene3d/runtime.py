@@ -35,9 +35,12 @@ from book_production_platform.scene3d.qa import verify_png
 from book_production_platform.scene3d.scene_builder import (
     BACKGROUND_PRESETS,
     EEVEE_SAMPLES,
+    HDRI_PRESETS,
     LIGHTING_PRESETS,
+    MATERIAL_PRESETS,
     RENDER_ENGINE,
     RENDER_PROFILES,
+    hdri_path,
 )
 
 MAX_TIMEOUT_SECONDS = 300
@@ -393,6 +396,10 @@ def _compose(
                 ).encode("utf-8")
             )
 
+            try:
+                hdri_path(scene_ir.lighting)  # the worker checks again before it loads the file
+            except ValueError as error:
+                raise SceneInputError(str(error), "bundled HDRI is missing or changed") from error
             background = BACKGROUND_PRESETS[scene_ir.background]
             with trace.step(
                 "build", "blender_build_scene",
@@ -403,8 +410,14 @@ def _compose(
                 world_color=list(background["world_color"]),
                 world_strength=background["world_strength"],
                 ground=background["ground"] is not None,
+                shadow_catcher=(background["ground"] or {}).get("shadow_catcher"),
                 film_transparent=background["film_transparent"],
+                hdri=(
+                    {key: HDRI_PRESETS[scene_ir.lighting][key] for key in ("file", "sha256", "license", "source", "strength", "rotation_z_degrees")}
+                    if scene_ir.lighting in HDRI_PRESETS else None
+                ),
                 material_preset=scene_ir.material_preset,
+                material_overrides=MATERIAL_PRESETS[scene_ir.material_preset],
             ) as build_step:
                 build_seconds = _execute_worker(
                     _worker_command(

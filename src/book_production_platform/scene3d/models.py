@@ -55,9 +55,9 @@ class SceneIR(_StrictModel):
         "orbit-fit-270.v1",
         "orbit-fit-315.v1",
     ]
-    lighting: Literal["softbox-three-point.v1", "high-key-white.v1", "dramatic-rim.v1"]
-    background: Literal["studio-neutral.v1", "studio-white.v1", "transparent.v1"]
-    material_preset: Literal["preserve-source.v1"]
+    lighting: Literal["softbox-three-point.v1", "high-key-white.v1", "dramatic-rim.v1", "studio-hdri.v1"]
+    background: Literal["studio-neutral.v1", "studio-white.v1", "transparent.v1", "transparent-shadow.v1"]
+    material_preset: Literal["preserve-source.v1", "matte.v1", "gloss.v1", "brushed-metal.v1"]
     render_profile: Literal["square-1024.v1", "landscape-1920x1080.v1"]
 
 

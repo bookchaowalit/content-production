@@ -29,8 +29,10 @@ from .scene_builder import (
     CAMERA_SENSOR_WIDTH_MM,
     EEVEE_SAMPLES,
     FIT_DIRECTIONS,
+    HDRI_PRESETS,
     LIGHT_TARGET,
     LIGHTING_PRESETS,
+    MATERIAL_PRESETS,
     PNG_COMPRESSION,
     RENDER_PROFILES,
     VIEW_TRANSFORM,
@@ -77,6 +79,9 @@ def build_blender_guide(scene: SceneIR, *, mesh_objects: int | None = None) -> M
     lights = LIGHTING_PRESETS[scene.lighting]
     transparent = bool(background["film_transparent"])
     ground = background["ground"]
+    catcher = ground.get("shadow_catcher") if ground else None
+    hdri = HDRI_PRESETS.get(scene.lighting)
+    finish = MATERIAL_PRESETS[scene.material_preset]
     asset_name = scene.asset.path.split("/")[-1]
     guide = ManualGuide(
         program="Blender",
@@ -87,7 +92,7 @@ def build_blender_guide(scene: SceneIR, *, mesh_objects: int | None = None) -> M
             "ทำตามขั้นตอนนี้ใน Blender รุ่นเดียวกับเครื่องมือ จะได้ฉาก studio เดียวกับ `scene.blend` และภาพ `render.png`; "
             "ตัวเลขทุกตัวมาจาก preset ของเครื่องมือ ส่วนค่าที่ขึ้นกับขนาดสินค้าให้คัดลอกจาก `scene.blend`"
         ),
-        estimated_minutes=float(15 + 3 * len(lights) + (3 if ground else 0)),
+        estimated_minutes=float(15 + 3 * len(lights) + (3 if ground else 0) + (5 if catcher else 0) + (4 if hdri else 0) + (3 if finish else 0)),
         setup=[
             f"เปิด Blender {BLENDER_VERSION} ▸ `File ▸ New ▸ General`",
             "ลบวัตถุเริ่มต้นทั้งหมด (เครื่องมือเริ่มจากฉากว่าง): `Select ▸ All` (A) แล้ว `Object ▸ Delete` (X)",
@@ -102,12 +107,21 @@ def build_blender_guide(scene: SceneIR, *, mesh_objects: int | None = None) -> M
 
     guide.layer(asset_name, "Imported mesh objects", content=f"{mesh_objects} mesh" if mesh_objects is not None else "ตาม GLB", position="parent = Product Root")
     guide.layer("Product Root", "Empty (Plain Axes)", content="scale = 2.0 / ด้านยาวสุด", position="ฐานสินค้าอยู่ที่ Z=0, กึ่งกลาง X/Y ที่ 0")
-    if ground:
+    if catcher:
+        guide.layer(
+            "Studio Ground", "Mesh Plane (shadow catcher)",
+            content=f"size {ground['size']:g} · AO distance {catcher['ao_distance']:g} · strength {catcher['strength']:g} · fade {catcher['fade_from']:g}–{catcher['fade_to']:g} m",
+            position=f"location {_fmt(ground['location'])}",
+        )
+    elif ground:
         guide.layer("Studio Ground", "Mesh Plane", content=f"size {ground['size']:g} · Base Color {_fmt(ground['base_color'])} · Roughness {ground['roughness']:g}", position=f"location {_fmt(ground['location'])}")
     guide.layer("Product Hero Camera", "Camera", content=f"lens {CAMERA_LENS_MM:g} mm · DOF off", position=scene.composition)
     for name, location, energy, size, color in lights:
         guide.layer(name, "Light (Area, Disk)", content=f"{energy:g} W · size {size:g} m · color {_fmt(color)}", position=f"location {_fmt(location)}")
-    guide.layer("World", "World", content=f"Color {_fmt(background['world_color'])} · Strength {background['world_strength']:g}", position="—")
+    world_content = f"Color {_fmt(background['world_color'])} · Strength {background['world_strength']:g}"
+    if hdri:
+        world_content += f" · HDRI {hdri['file']} (strength {hdri['strength']:g}, camera sees Color)"
+    guide.layer("World", "World", content=world_content, position="—")
 
     section = "นำเข้าสินค้า"
     guide.step("นำเข้าไฟล์ GLB (ค่า import เริ่มต้น)", tool="File ▸ Import ▸ glTF 2.0 (.glb/.gltf)", value=asset_name, section=section)
@@ -133,13 +147,70 @@ def build_blender_guide(scene: SceneIR, *, mesh_objects: int | None = None) -> M
         note="คัดลอก Location ของ `Product Root` จาก `scene.blend` ได้เช่นกัน",
         section=section,
     )
-    guide.step("วัสดุ: ใช้วัสดุจาก GLB ตามเดิม ไม่ต้องแก้ (preset `preserve-source.v1`)", target="Material Properties", value=scene.material_preset, section=section)
+    if finish is None:
+        guide.step("วัสดุ: ใช้วัสดุจาก GLB ตามเดิม ไม่ต้องแก้ (preset `preserve-source.v1`)", target="Material Properties", value=scene.material_preset, section=section)
+    else:
+        section = f"วัสดุ ({scene.material_preset})"
+        guide.step(
+            "ทำกับทุกวัสดุของสินค้า: เลือก mesh แต่ละชิ้น แล้วไล่ทุก slot",
+            tool="Material Properties ▸ Material Slots",
+            note="mesh ที่ไม่มีวัสดุ ให้กด New เพิ่มวัสดุ `Product Default` ก่อน; Base Color และ texture สีเดิมไม่ต้องแตะ",
+            section=section,
+        )
+        guide.step(
+            "ถ้าช่องด้านล่างมี texture หรือ node ต่ออยู่ ให้ถอดออกก่อน",
+            tool="Shader Editor ▸ Ctrl+คลิกขวาลากตัดเส้นที่เข้าช่องนั้น",
+            note="เช่น metallic-roughness map จาก GLB ซึ่งจะทับค่าที่ตั้ง",
+            section=section,
+        )
+        for name, value in finish.items():
+            guide.step(f"ตั้ง {name}", tool=f"Material Properties ▸ Surface ▸ Principled BSDF ▸ {name}", value=f"{value:g}", section=section)
 
     section = f"World และพื้น ({scene.background})"
     guide.step("สร้าง World ใหม่ (Use Nodes)", tool="World Properties ▸ New", section=section)
     guide.step("ตั้งสีพื้นหลังของ World", tool="World Properties ▸ Surface ▸ Background ▸ Color (RGBA)", value=_fmt(background["world_color"]), section=section)
     guide.step("ตั้งความแรงแสงของ World", tool="World Properties ▸ Surface ▸ Strength", value=f"{background['world_strength']:g}", section=section)
-    if ground:
+    if hdri:
+        guide.step(
+            "เพิ่ม HDRI สำหรับแสงและเงาสะท้อน (กล้องยังเห็นสีพื้นหลังเดิม)",
+            tool="Shader Editor (World) ▸ Add ▸ Texture ▸ Environment Texture ▸ Open",
+            value=hdri["file"],
+            note=f"ไฟล์อยู่ใน `scene3d/assets/` ของเครื่องมือ ({hdri['license']}, {hdri['source']}); ต่อ Texture Coordinate ▸ Generated → Mapping (Rotation Z {hdri['rotation_z_degrees']:g}°) → Vector",
+            section=section,
+        )
+        guide.step("ต่อ Color เข้า Background node ตัวที่สอง", tool="Shader Editor (World) ▸ Add ▸ Shader ▸ Background", value=f"Strength = {hdri['strength']:g}", section=section)
+        guide.step(
+            "ให้กล้องเห็นสีเดิม ส่วนแสงมาจาก HDRI",
+            tool="Shader Editor (World) ▸ Add ▸ Input ▸ Light Path + Add ▸ Shader ▸ Mix Shader",
+            value="Fac = Is Camera Ray; Shader 1 = Background ของ HDRI; Shader 2 = Background สีเดิม; Mix → World Output ▸ Surface",
+            section=section,
+        )
+        guide.step("ฝัง HDRI ไว้ในไฟล์", tool="Image Editor ▸ Image ▸ Pack", value="Studio HDRI", section=section)
+    if catcher:
+        guide.step("เพิ่มพื้นรับเงา", tool="Add ▸ Mesh ▸ Plane", section=section)
+        guide.step("ตั้งขนาดและตำแหน่งพื้นใน Adjust Last Operation", tool="Adjust Last Operation ▸ Size / Location", value=f"Size = {ground['size']:g} m, Location = {_fmt(ground['location'])}", section=section)
+        guide.step("ตั้งชื่อ", tool="Outliner ▸ ดับเบิลคลิกชื่อ", value="Studio Ground", section=section)
+        guide.step("เพิ่มวัสดุใหม่แล้วลบ Principled BSDF ออก", tool="Material Properties ▸ New", value="Shadow Catcher Ground", section=section)
+        guide.step(
+            "สร้างค่าความมืดของเงาจาก ambient occlusion",
+            tool="Shader Editor ▸ Add ▸ Input ▸ Ambient Occlusion + Converter ▸ Math",
+            value=f"AO Distance = {catcher['ao_distance']:g}, Samples = 16; dark = clamp((1 − AO) × {catcher['strength']:g})",
+            section=section,
+        )
+        guide.step(
+            "ให้เงาจางออกตามระยะจากแกนสินค้า",
+            tool="Shader Editor ▸ Geometry ▸ Position → Vector Math Multiply (1, 1, 0) → Length → Map Range",
+            value=f"From {catcher['fade_from']:g} → {catcher['fade_to']:g}, To 1 → 0; alpha = clamp(dark × fade)",
+            section=section,
+        )
+        guide.step(
+            "ผสม Transparent BSDF กับ Emission สีดำด้วย alpha",
+            tool="Shader Editor ▸ Add ▸ Shader ▸ Mix Shader",
+            value="Fac = alpha; Shader 1 = Transparent BSDF; Shader 2 = Emission (0, 0, 0, 1); Mix → Material Output",
+            section=section,
+        )
+        guide.step("ตั้งวิธี render ของวัสดุ", tool="Material Properties ▸ Settings ▸ Render Method", value="Blended", section=section)
+    elif ground:
         guide.step("เพิ่มพื้น", tool="Add ▸ Mesh ▸ Plane", section=section)
         guide.step("ตั้งขนาดและตำแหน่งพื้นใน Adjust Last Operation", tool="Adjust Last Operation ▸ Size / Location", value=f"Size = {ground['size']:g} m, Location = {_fmt(ground['location'])}", section=section)
         guide.step("ตั้งชื่อ", tool="Outliner ▸ ดับเบิลคลิกชื่อ", value="Studio Ground", section=section)
@@ -192,6 +263,8 @@ def build_blender_guide(scene: SceneIR, *, mesh_objects: int | None = None) -> M
     guide.step("ตั้งเป็นกล้องหลักของฉาก", tool="View ▸ Cameras ▸ Set Active Object as Camera (Ctrl+Numpad 0)", section=section)
 
     section = f"แสง ({scene.lighting})"
+    if not lights:
+        guide.step("ไม่ต้องเพิ่มไฟ: แสงทั้งหมดมาจาก HDRI ใน World", target="—", section=section)
     for name, location, energy, size, color in lights:
         rotation = aim_rotation(location, LIGHT_TARGET)
         guide.step(f"เพิ่มไฟ `{name}`", tool="Add ▸ Light ▸ Area", section=section)
@@ -226,7 +299,8 @@ def build_blender_guide(scene: SceneIR, *, mesh_objects: int | None = None) -> M
 
     guide.checks = [
         f"`render.png` ขนาด {width}×{height} px, PNG {'RGBA' if transparent else 'RGB'} 8-bit",
-        f"Outliner มี Product Root, {'Studio Ground, ' if ground else ''}Product Hero Camera และไฟ {len(lights)} ดวง: {', '.join(name for name, *_ in lights)}",
+        f"Outliner มี Product Root, {'Studio Ground, ' if ground else ''}Product Hero Camera และไฟ {len(lights)} ดวง"
+        + (f": {', '.join(name for name, *_ in lights)}" if lights else " (แสงจาก HDRI)"),
         f"Render Engine = EEVEE, Samples = {EEVEE_SAMPLES}, View Transform = {VIEW_TRANSFORM}, Film Transparent = {'on' if transparent else 'off'}",
         "เปิด `scene.blend` ของเครื่องมือคู่กัน แล้วเทียบ Location/Rotation/Scale ของ Product Root และกล้อง",
         "วาง `render.png` ของเครื่องมือทับภาพที่เรนเดอร์เอง (opacity 50%) แล้วขอบสินค้าต้องซ้อนกันพอดี",
