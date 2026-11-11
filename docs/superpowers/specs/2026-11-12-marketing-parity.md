@@ -61,10 +61,12 @@ interchange sheet; mapping to one platform's own import template is P2.
 
 `marketing_production.approval.record_approval(package_path, decision, reviewer,
 note, decided_at)` writes `<package stem>.approval.json`
-(`campaign-approval.v1`: package filename + sha256, decision
+(`campaign-approval.v1`: package filename + sha256, the sha256 of every export in the
+manifest (the bulk CSV; an export that differs from its manifest hash cannot be approved), decision
 `approved | changes_requested | rejected`, reviewer label, note). `approval_status`
-returns `pending_review` without a record, the decision when the hash matches,
-and `stale` when the package changed. CLI: `approve` and `approval-status`.
+returns `pending_review` without a record, the decision while the package and every
+export match,
+and `stale` when the package or any export changed or is missing. CLI: `approve` and `approval-status`.
 Approval never publishes anything.
 
 ## M6 A/B experiment plan

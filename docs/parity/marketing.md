@@ -35,7 +35,7 @@ Status: **have** = implemented and tested; **partial** = a subset works;
 | Platform-specific import templates | Meta / Google Ads Editor / Hootsuite column sets | missing | P2 | the CSV is generic; mapping needs each platform's current template checked in a real account | LOGIC |
 | Asset spec per placement (frame size) | Canva presets; Meta crop guides | partial | P2 | frame size per channel in the CSV and the guide; no safe zones, no resize — hand-off to `graphics-v1a` | LOGIC |
 | Paid ad formats (Meta ad: primary text / headline / description; Google RSA 15 × 30 + 4 × 90, paths 15) | Meta Ads Manager; Google Ads | missing | P2 | new asset kinds with their own limits; review-only like the rest | LOGIC |
-| Approval gate | HubSpot / Hootsuite approvals | **have (new)** | — | `approve` / `approval-status`: decision bound to the package sha256; a changed package is `stale` | HUMAN-GATE |
+| Approval gate | HubSpot / Hootsuite approvals | **have (new)** | — | `approve` / `approval-status`: decision bound to the sha256 of the package and of every manifest export (bulk CSV); a changed or missing file is `stale` | HUMAN-GATE |
 | Save as draft for review | Meta / HubSpot drafts | have | — | the package is the draft; the guide ends every channel with "Save as draft" | LOGIC |
 | Copy from a brief | Canva Magic Write; HubSpot AI | have (shadow; live by owner approval) | — | `propose` through `brief-adapter-kit` → AI gateway; grounding rejects ungrounded numbers, links, claims | AI-ASSIST |
 | Brand kit, templates, visual design | Canva | — | — | graphics belong to `graphics-v1a` | — |
@@ -59,7 +59,7 @@ bulk CSV, email subject/preheader, calendar). After: no open P1.
 2. M2 email subject / preheader — `test_m2_email_fields`, IR `test_v3_field_issues`.
 3. M3 planned dates and calendar — `test_m3_calendar_is_sorted_metadata`.
 4. M4 bulk CSV — `test_m4_bulk_csv_rows_and_formula_escape`, `test_m4_image_row_has_frame_size`.
-5. M5 approval gate — `test_m5_approval_record_is_bound_to_package_hash`, `test_m5_cli_approve_and_status`.
+5. M5 approval gate — `test_m5_approval_record_is_bound_to_package_hash`, `test_m5_editing_the_bulk_csv_after_approval_makes_it_stale`, `test_m5_deleting_the_bulk_csv_after_approval_makes_it_stale`, `test_m5_cli_approve_and_status`.
 6. M6 A/B plan — `test_m6_sample_size_matches_reference` (10 % → +20 % = 3,841 per variant), `test_m6_experiment_plan_in_package`.
 7. Reverse guide + drift test `tests/test_reverse_guide.py`; v2 manifests still replay (`test_replay_of_v2_manifest_still_works_after_v3`).
 

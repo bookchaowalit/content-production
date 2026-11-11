@@ -206,7 +206,7 @@
 #### อนุมัติ (คนตัดสินใจ)
 
 109. ผู้อนุมัติตรวจแบบร่างทุกช่องทางเทียบกับแพ็กเกจ แล้วบันทึกผล (approved / changes_requested / rejected) — เครื่องมือ/เมนู: `python -m marketing_production.cli approve --package <ไฟล์ .campaign.json> --decision approved --reviewer <ชื่อย่อ>`
-   - หมายเหตุ: ผลผูกกับ sha256 ของแพ็กเกจ; แพ็กเกจเปลี่ยน = สถานะ stale ต้องอนุมัติใหม่
+   - หมายเหตุ: ผลผูกกับ sha256 ของแพ็กเกจและไฟล์ bulk CSV; ไฟล์ใดเปลี่ยนหรือหาย = สถานะ stale ต้องอนุมัติใหม่
 110. ตรวจสถานะก่อนให้คนกดเผยแพร่เอง — เครื่องมือ/เมนู: `python -m marketing_production.cli approval-status --package <ไฟล์ .campaign.json>`; ค่า: `approved`
    - หมายเหตุ: แคมเปญ `rainy-season-01`: เครื่องมือไม่เผยแพร่เอง
 

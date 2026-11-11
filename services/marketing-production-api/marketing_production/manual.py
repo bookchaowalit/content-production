@@ -137,7 +137,7 @@ def _approval_steps(guide: ManualGuide, ir: CampaignIR) -> None:
     guide.step(
         "ผู้อนุมัติตรวจแบบร่างทุกช่องทางเทียบกับแพ็กเกจ แล้วบันทึกผล (approved / changes_requested / rejected)",
         tool="python -m marketing_production.cli approve --package <ไฟล์ .campaign.json> --decision approved --reviewer <ชื่อย่อ>",
-        note="ผลผูกกับ sha256 ของแพ็กเกจ; แพ็กเกจเปลี่ยน = สถานะ stale ต้องอนุมัติใหม่",
+        note="ผลผูกกับ sha256 ของแพ็กเกจและไฟล์ bulk CSV; ไฟล์ใดเปลี่ยนหรือหาย = สถานะ stale ต้องอนุมัติใหม่",
         section=APPROVAL_SECTION,
     )
     guide.step(

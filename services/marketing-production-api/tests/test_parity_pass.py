@@ -166,6 +166,51 @@ def test_m5_approval_record_is_bound_to_package_hash(tmp_path: Path) -> None:
         record_approval(package, decision="publish", reviewer="owner")
 
 
+def _approved_with_csv(tmp_path: Path) -> tuple[Path, Path]:
+    result = run_campaign_job(_payload(), tmp_path, "k")
+    assert result.package is not None
+    manifest = json.loads((tmp_path / str(result.manifest_filename)).read_text(encoding="utf-8"))
+    package = tmp_path / result.package.filename
+    bulk = tmp_path / manifest["exports"][0]["filename"]
+    record = record_approval(package, decision="approved", reviewer="owner")
+    assert [item["filename"] for item in record["exports"]] == [bulk.name]
+    assert approval_status(package)["status"] == "approved"
+    return package, bulk
+
+
+def test_m5_editing_the_bulk_csv_after_approval_makes_it_stale(tmp_path: Path) -> None:
+    package, bulk = _approved_with_csv(tmp_path)
+    bulk.write_bytes(bulk.read_bytes().replace("สวัสดีสมาชิก".encode(), "ลดราคา 90%".encode()))
+    state = approval_status(package)
+    assert state["status"] == "stale" and state["reason"] == "export_changed"
+
+
+def test_m5_deleting_the_bulk_csv_after_approval_makes_it_stale(tmp_path: Path) -> None:
+    package, bulk = _approved_with_csv(tmp_path)
+    bulk.unlink()
+    state = approval_status(package)
+    assert state["status"] == "stale" and state["reason"] == "export_missing"
+
+
+def test_m5_record_without_export_hashes_is_stale(tmp_path: Path) -> None:
+    package, _ = _approved_with_csv(tmp_path)
+    record_file = package.with_name(package.name.removesuffix(".campaign.json") + ".approval.json")
+    record = json.loads(record_file.read_text(encoding="utf-8"))
+    del record["exports"]
+    record_file.write_text(json.dumps(record), encoding="utf-8")
+    assert approval_status(package)["status"] == "stale"
+
+
+def test_m5_cannot_approve_an_export_changed_before_approval(tmp_path: Path) -> None:
+    result = run_campaign_job(_payload(), tmp_path, "k")
+    assert result.package is not None
+    manifest = json.loads((tmp_path / str(result.manifest_filename)).read_text(encoding="utf-8"))
+    bulk = tmp_path / manifest["exports"][0]["filename"]
+    bulk.write_text("campaign_id\nforged\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="export_hash_mismatch"):
+        record_approval(tmp_path / result.package.filename, decision="approved", reviewer="owner")
+
+
 def test_m5_cli_approve_and_status(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     result = run_campaign_job(_payload(), tmp_path, "k")
     assert result.package is not None
