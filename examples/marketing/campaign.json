@@ -1,0 +1,37 @@
+{
+  "campaign_id": "rainy-season-01",
+  "name": "โปรหน้าฝน ร้านกาแฟบ้านสวน",
+  "objective": "conversion",
+  "channels": ["instagram", "facebook", "email", "line"],
+  "timezone": "Asia/Bangkok",
+  "asset_root": ".",
+  "audience": {
+    "name": "สมาชิกร้าน",
+    "rules": [
+      {"field": "language", "operator": "equals", "value": "th"},
+      {"field": "location", "operator": "in", "value": "Bangkok"}
+    ]
+  },
+  "brand_rules": {"forbidden_words": ["ถูกที่สุด", "ฟรีตลอดชีพ"]},
+  "utm": {"landing_url": "https://example.com/rainy", "term": "rainy-latte"},
+  "experiment_plan": {
+    "metric": "link_click_rate",
+    "baseline_rate": 0.02,
+    "minimum_detectable_lift": 0.25,
+    "daily_reach_per_variant": 1500
+  },
+  "assets": [
+    {"asset_id": "ig-a", "kind": "copy", "channel": "instagram", "uri": "inline:ig-a", "variant": "A", "planned_at": "2026-12-01T09:00",
+     "text": "ฝนตกแบบนี้ ลาเต้ร้อนแก้วละ 55 บาท ถึงสิ้นเดือน #ร้านกาแฟบ้านสวน #หน้าฝน"},
+    {"asset_id": "ig-b", "kind": "copy", "channel": "instagram", "uri": "inline:ig-b", "variant": "B", "planned_at": "2026-12-01T09:00",
+     "text": "แวะหลบฝนมาจิบลาเต้ร้อน 55 บาท @baansuan.cafe #หน้าฝน"},
+    {"asset_id": "ig-hero", "kind": "image", "channel": "instagram", "uri": "hero.png"},
+    {"asset_id": "fb-post", "kind": "copy", "channel": "facebook", "uri": "inline:fb", "planned_at": "2026-12-01T12:00",
+     "text": "หน้าฝนนี้ ลาเต้ร้อนแก้วละ 55 บาท ทุกสาขา ถึง 31 ธ.ค."},
+    {"asset_id": "newsletter", "kind": "email", "channel": "email", "uri": "inline:mail", "planned_at": "2026-12-02",
+     "subject": "ลาเต้ร้อน 55 บาท ต้อนรับหน้าฝน", "preheader": "เฉพาะสมาชิก ถึงสิ้นเดือนนี้",
+     "text": "สวัสดีสมาชิกบ้านสวน หน้าฝนนี้เรามีลาเต้ร้อนแก้วละ 55 บาท แสดงอีเมลนี้ที่หน้าร้านได้เลย"},
+    {"asset_id": "line-msg", "kind": "copy", "channel": "line", "uri": "inline:line", "planned_at": "2026-12-03",
+     "text": "- ลาเต้ร้อน 55 บาท ทุกสาขา ถึง 31 ธ.ค."}
+  ]
+}

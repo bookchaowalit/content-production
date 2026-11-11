@@ -1,0 +1,502 @@
+[
+ {
+  "step": 36,
+  "op": "new_spreadsheet"
+ },
+ {
+  "step": 37,
+  "op": "format_all_cells_text",
+  "format_key": 100
+ },
+ {
+  "step": 38,
+  "op": "autoinput_off"
+ },
+ {
+  "step": 39,
+  "op": "type",
+  "cell": "A1",
+  "typed": "campaign_id",
+  "stored": "campaign_id"
+ },
+ {
+  "step": 40,
+  "op": "type",
+  "cell": "B1",
+  "typed": "channel",
+  "stored": "channel"
+ },
+ {
+  "step": 41,
+  "op": "type",
+  "cell": "C1",
+  "typed": "asset_id",
+  "stored": "asset_id"
+ },
+ {
+  "step": 42,
+  "op": "type",
+  "cell": "D1",
+  "typed": "kind",
+  "stored": "kind"
+ },
+ {
+  "step": 43,
+  "op": "type",
+  "cell": "E1",
+  "typed": "variant",
+  "stored": "variant"
+ },
+ {
+  "step": 44,
+  "op": "type",
+  "cell": "F1",
+  "typed": "planned_at",
+  "stored": "planned_at"
+ },
+ {
+  "step": 45,
+  "op": "type",
+  "cell": "G1",
+  "typed": "subject",
+  "stored": "subject"
+ },
+ {
+  "step": 46,
+  "op": "type",
+  "cell": "H1",
+  "typed": "preheader",
+  "stored": "preheader"
+ },
+ {
+  "step": 47,
+  "op": "type",
+  "cell": "I1",
+  "typed": "text",
+  "stored": "text"
+ },
+ {
+  "step": 48,
+  "op": "type",
+  "cell": "J1",
+  "typed": "chars",
+  "stored": "chars"
+ },
+ {
+  "step": 49,
+  "op": "type",
+  "cell": "K1",
+  "typed": "char_limit",
+  "stored": "char_limit"
+ },
+ {
+  "step": 50,
+  "op": "type",
+  "cell": "L1",
+  "typed": "tracked_link",
+  "stored": "tracked_link"
+ },
+ {
+  "step": 51,
+  "op": "type",
+  "cell": "M1",
+  "typed": "frame_size",
+  "stored": "frame_size"
+ },
+ {
+  "step": 52,
+  "op": "type",
+  "cell": "N1",
+  "typed": "source",
+  "stored": "source"
+ },
+ {
+  "step": 53,
+  "op": "type",
+  "cell": "A2",
+  "typed": "rainy-season-01",
+  "stored": "rainy-season-01"
+ },
+ {
+  "step": 54,
+  "op": "type",
+  "cell": "B2",
+  "typed": "email",
+  "stored": "email"
+ },
+ {
+  "step": 55,
+  "op": "type",
+  "cell": "C2",
+  "typed": "newsletter",
+  "stored": "newsletter"
+ },
+ {
+  "step": 56,
+  "op": "type",
+  "cell": "D2",
+  "typed": "email",
+  "stored": "email"
+ },
+ {
+  "step": 57,
+  "op": "type",
+  "cell": "F2",
+  "typed": "2026-12-02",
+  "stored": "2026-12-02"
+ },
+ {
+  "step": 58,
+  "op": "type",
+  "cell": "G2",
+  "typed": "ลาเต้ร้อน 55 บาท ต้อนรับหน้าฝน",
+  "stored": "ลาเต้ร้อน 55 บาท ต้อนรับหน้าฝน"
+ },
+ {
+  "step": 59,
+  "op": "type",
+  "cell": "H2",
+  "typed": "เฉพาะสมาชิก ถึงสิ้นเดือนนี้",
+  "stored": "เฉพาะสมาชิก ถึงสิ้นเดือนนี้"
+ },
+ {
+  "step": 60,
+  "op": "type",
+  "cell": "I2",
+  "typed": "สวัสดีสมาชิกบ้านสวน หน้าฝนนี้เรามีลาเต้ร้อนแก้วละ 55 บาท แสดงอีเมลนี้ที่หน้าร้านได้เลย",
+  "stored": "สวัสดีสมาชิกบ้านสวน หน้าฝนนี้เรามีลาเต้ร้อนแก้วละ 55 บาท แสดงอีเมลนี้ที่หน้าร้านได้เลย"
+ },
+ {
+  "step": 61,
+  "op": "type",
+  "cell": "J2",
+  "typed": "86",
+  "stored": "86"
+ },
+ {
+  "step": 62,
+  "op": "type",
+  "cell": "K2",
+  "typed": "1200",
+  "stored": "1200"
+ },
+ {
+  "step": 63,
+  "op": "type",
+  "cell": "L2",
+  "typed": "https://example.com/rainy?utm_source=newsletter&utm_medium=email&utm_campaign=rainy-season-01&utm_content=newsletter&utm_term=rainy-latte",
+  "stored": "https://example.com/rainy?utm_source=newsletter&utm_medium=email&utm_campaign=rainy-season-01&utm_content=newsletter&utm_term=rainy-latte"
+ },
+ {
+  "step": 64,
+  "op": "type",
+  "cell": "A3",
+  "typed": "rainy-season-01",
+  "stored": "rainy-season-01"
+ },
+ {
+  "step": 65,
+  "op": "type",
+  "cell": "B3",
+  "typed": "facebook",
+  "stored": "facebook"
+ },
+ {
+  "step": 66,
+  "op": "type",
+  "cell": "C3",
+  "typed": "fb-post",
+  "stored": "fb-post"
+ },
+ {
+  "step": 67,
+  "op": "type",
+  "cell": "D3",
+  "typed": "copy",
+  "stored": "copy"
+ },
+ {
+  "step": 68,
+  "op": "type",
+  "cell": "F3",
+  "typed": "2026-12-01T12:00",
+  "stored": "2026-12-01T12:00"
+ },
+ {
+  "step": 69,
+  "op": "type",
+  "cell": "I3",
+  "typed": "หน้าฝนนี้ ลาเต้ร้อนแก้วละ 55 บาท ทุกสาขา ถึง 31 ธ.ค.",
+  "stored": "หน้าฝนนี้ ลาเต้ร้อนแก้วละ 55 บาท ทุกสาขา ถึง 31 ธ.ค."
+ },
+ {
+  "step": 70,
+  "op": "type",
+  "cell": "J3",
+  "typed": "52",
+  "stored": "52"
+ },
+ {
+  "step": 71,
+  "op": "type",
+  "cell": "K3",
+  "typed": "500",
+  "stored": "500"
+ },
+ {
+  "step": 72,
+  "op": "type",
+  "cell": "L3",
+  "typed": "https://example.com/rainy?utm_source=facebook&utm_medium=social&utm_campaign=rainy-season-01&utm_content=fb-post&utm_term=rainy-latte",
+  "stored": "https://example.com/rainy?utm_source=facebook&utm_medium=social&utm_campaign=rainy-season-01&utm_content=fb-post&utm_term=rainy-latte"
+ },
+ {
+  "step": 73,
+  "op": "type",
+  "cell": "A4",
+  "typed": "rainy-season-01",
+  "stored": "rainy-season-01"
+ },
+ {
+  "step": 74,
+  "op": "type",
+  "cell": "B4",
+  "typed": "instagram",
+  "stored": "instagram"
+ },
+ {
+  "step": 75,
+  "op": "type",
+  "cell": "C4",
+  "typed": "ig-a",
+  "stored": "ig-a"
+ },
+ {
+  "step": 76,
+  "op": "type",
+  "cell": "D4",
+  "typed": "copy",
+  "stored": "copy"
+ },
+ {
+  "step": 77,
+  "op": "type",
+  "cell": "E4",
+  "typed": "A",
+  "stored": "A"
+ },
+ {
+  "step": 78,
+  "op": "type",
+  "cell": "F4",
+  "typed": "2026-12-01T09:00",
+  "stored": "2026-12-01T09:00"
+ },
+ {
+  "step": 79,
+  "op": "type",
+  "cell": "I4",
+  "typed": "ฝนตกแบบนี้ ลาเต้ร้อนแก้วละ 55 บาท ถึงสิ้นเดือน #ร้านกาแฟบ้านสวน #หน้าฝน",
+  "stored": "ฝนตกแบบนี้ ลาเต้ร้อนแก้วละ 55 บาท ถึงสิ้นเดือน #ร้านกาแฟบ้านสวน #หน้าฝน"
+ },
+ {
+  "step": 80,
+  "op": "type",
+  "cell": "J4",
+  "typed": "71",
+  "stored": "71"
+ },
+ {
+  "step": 81,
+  "op": "type",
+  "cell": "K4",
+  "typed": "500",
+  "stored": "500"
+ },
+ {
+  "step": 82,
+  "op": "type",
+  "cell": "L4",
+  "typed": "https://example.com/rainy?utm_source=instagram&utm_medium=social&utm_campaign=rainy-season-01&utm_content=ig-a&utm_term=rainy-latte",
+  "stored": "https://example.com/rainy?utm_source=instagram&utm_medium=social&utm_campaign=rainy-season-01&utm_content=ig-a&utm_term=rainy-latte"
+ },
+ {
+  "step": 83,
+  "op": "type",
+  "cell": "A5",
+  "typed": "rainy-season-01",
+  "stored": "rainy-season-01"
+ },
+ {
+  "step": 84,
+  "op": "type",
+  "cell": "B5",
+  "typed": "instagram",
+  "stored": "instagram"
+ },
+ {
+  "step": 85,
+  "op": "type",
+  "cell": "C5",
+  "typed": "ig-b",
+  "stored": "ig-b"
+ },
+ {
+  "step": 86,
+  "op": "type",
+  "cell": "D5",
+  "typed": "copy",
+  "stored": "copy"
+ },
+ {
+  "step": 87,
+  "op": "type",
+  "cell": "E5",
+  "typed": "B",
+  "stored": "B"
+ },
+ {
+  "step": 88,
+  "op": "type",
+  "cell": "F5",
+  "typed": "2026-12-01T09:00",
+  "stored": "2026-12-01T09:00"
+ },
+ {
+  "step": 89,
+  "op": "type",
+  "cell": "I5",
+  "typed": "แวะหลบฝนมาจิบลาเต้ร้อน 55 บาท @baansuan.cafe #หน้าฝน",
+  "stored": "แวะหลบฝนมาจิบลาเต้ร้อน 55 บาท @baansuan.cafe #หน้าฝน"
+ },
+ {
+  "step": 90,
+  "op": "type",
+  "cell": "J5",
+  "typed": "52",
+  "stored": "52"
+ },
+ {
+  "step": 91,
+  "op": "type",
+  "cell": "K5",
+  "typed": "500",
+  "stored": "500"
+ },
+ {
+  "step": 92,
+  "op": "type",
+  "cell": "L5",
+  "typed": "https://example.com/rainy?utm_source=instagram&utm_medium=social&utm_campaign=rainy-season-01&utm_content=ig-b&utm_term=rainy-latte",
+  "stored": "https://example.com/rainy?utm_source=instagram&utm_medium=social&utm_campaign=rainy-season-01&utm_content=ig-b&utm_term=rainy-latte"
+ },
+ {
+  "step": 93,
+  "op": "type",
+  "cell": "A6",
+  "typed": "rainy-season-01",
+  "stored": "rainy-season-01"
+ },
+ {
+  "step": 94,
+  "op": "type",
+  "cell": "B6",
+  "typed": "instagram",
+  "stored": "instagram"
+ },
+ {
+  "step": 95,
+  "op": "type",
+  "cell": "C6",
+  "typed": "ig-hero",
+  "stored": "ig-hero"
+ },
+ {
+  "step": 96,
+  "op": "type",
+  "cell": "D6",
+  "typed": "image",
+  "stored": "image"
+ },
+ {
+  "step": 97,
+  "op": "type",
+  "cell": "M6",
+  "typed": "1080x1350",
+  "stored": "1080x1350"
+ },
+ {
+  "step": 98,
+  "op": "type",
+  "cell": "N6",
+  "typed": "hero.png",
+  "stored": "hero.png"
+ },
+ {
+  "step": 99,
+  "op": "type",
+  "cell": "A7",
+  "typed": "rainy-season-01",
+  "stored": "rainy-season-01"
+ },
+ {
+  "step": 100,
+  "op": "type",
+  "cell": "B7",
+  "typed": "line",
+  "stored": "line"
+ },
+ {
+  "step": 101,
+  "op": "type",
+  "cell": "C7",
+  "typed": "line-msg",
+  "stored": "line-msg"
+ },
+ {
+  "step": 102,
+  "op": "type",
+  "cell": "D7",
+  "typed": "copy",
+  "stored": "copy"
+ },
+ {
+  "step": 103,
+  "op": "type",
+  "cell": "F7",
+  "typed": "2026-12-03",
+  "stored": "2026-12-03"
+ },
+ {
+  "step": 104,
+  "op": "type",
+  "cell": "I7",
+  "typed": "'- ลาเต้ร้อน 55 บาท ทุกสาขา ถึง 31 ธ.ค.",
+  "stored": "'- ลาเต้ร้อน 55 บาท ทุกสาขา ถึง 31 ธ.ค."
+ },
+ {
+  "step": 105,
+  "op": "type",
+  "cell": "J7",
+  "typed": "38",
+  "stored": "38"
+ },
+ {
+  "step": 106,
+  "op": "type",
+  "cell": "K7",
+  "typed": "400",
+  "stored": "400"
+ },
+ {
+  "step": 107,
+  "op": "type",
+  "cell": "L7",
+  "typed": "https://example.com/rainy?utm_source=line&utm_medium=messaging&utm_campaign=rainy-season-01&utm_content=line-msg&utm_term=rainy-latte",
+  "stored": "https://example.com/rainy?utm_source=line&utm_medium=messaging&utm_campaign=rainy-season-01&utm_content=line-msg&utm_term=rainy-latte"
+ },
+ {
+  "step": 108,
+  "op": "save_csv"
+ }
+]
