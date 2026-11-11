@@ -16,7 +16,7 @@ Status: **have** = implemented and tested; **partial** = a subset works;
 | Capability | Figma / Canva / Photoshop | Engine status | Priority | Notes |
 |---|---|---|---|---|
 | Fixed canvas presets | Frame presets / Custom size / New document | have | — | `square` 1080×1080, `portrait` 1080×1350, `story` 1080×1920, `landscape` 1920×1080 |
-| A4 print size | Canva/Photoshop A4 | **have (new)** | — | `a4` 1240×1754 = A4 at 150 ppi; `export --scale 2 --dpi 300` gives 2480×3508. Every theme with a portrait layout comes in A4 and uses the portrait arrangement unless it declares its own `a4` entry. Not offered by `compose` or the V1B brief adapter yet |
+| A4 print size | Canva/Photoshop A4 | **have (new)** | — | `a4` 1240×1754 = A4 at 150 ppi; `export --scale 2 --dpi 300` gives 2480×3508. The 11 `graphic-ir.v2` themes (laid out in W/H/MIN) come in A4 and use the portrait arrangement unless they declare an `a4` entry; the three `graphic-ir.v1` themes (`quote_card`, `product_card`, `announcement`, fixed 1080 px coordinates) do not. Not offered by `compose`, campaigns, or the V1B brief adapter yet |
 | Arbitrary canvas size, A3/A5/US Letter | yes | missing | P2 | each size needs a fallback or its own layout entries |
 | Resize one design to several sizes | Canva Magic Resize, Figma duplicate frame | **have (new)** | — | `"variants": [...]` on a batch item expands to one item per registered size (`expand_variants`) |
 | Templates | thousands | partial (14) | P3 | data-defined themes (`graphic-theme.v1`); `book-production graphics themes` lists them |
@@ -73,7 +73,8 @@ Done since the first matrix: font weight, landscape 16:9, logo placement (compos
 campaigns), shapes and gradients, image effects, 14 themes, A4, and the press PDF
 (bleed, crop marks, CMYK).
 
-1. P2 — A4 in `compose` (per-archetype tables) and in the V1B brief adapter (needs eval cases).
+1. P2 — A4 in `compose`/campaigns (per-archetype tables), the V1B brief adapter (needs eval
+   cases), and the three v1 themes (convert their pixel coordinates to W/H expressions).
 2. P2 — Preflight the press PDF with veraPDF or Acrobat and claim PDF/X only when it passes.
 3. P2 — Logo slot in the fixed themes.
 4. P2 — JPEG/WebP export; vector PDF via the browser's print-to-PDF.
@@ -82,9 +83,12 @@ campaigns), shapes and gradients, image effects, 14 themes, A4, and the press PD
 
 ## A4 and press PDF (this pass)
 
-- `a4` is a registered size. `parse_theme` adds it to every theme that has `portrait`;
+- `a4` is a registered size. `parse_theme` adds it to every `graphic-ir.v2` theme that has
+  `portrait` (v1 themes use fixed pixels and would sit off-centre on the wider page);
   a `by_variant` table or `when.variant` without an `a4` entry uses the portrait one.
-  All 14 themes compile and pass QA at A4, and a visual check matched portrait.
+  The 11 A4 themes compile and pass QA, every text anchor sits at the same fraction of the
+  width as in portrait (test), and a visual check matched portrait. Campaign and compose
+  `all` stay on the screen sizes.
   `make --variant all` still means the screen sizes; ask for `--variant a4` by name.
 - `print_pdf.press_pdf` writes the PDF itself so it can set the print boxes. Bleed is
   mirrored from the artwork edge (the SVG has nothing beyond its canvas). CMYK needs the

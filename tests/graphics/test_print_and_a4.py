@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image, ImageCms
 
+from book_production_platform.graphics_ir import GraphicIR, TextNode, iter_nodes
 from book_production_platform.graphics_production import export as export_module
 from book_production_platform.graphics_production import jobs, print_pdf
 from book_production_platform.graphics_production.cli import main
@@ -52,9 +53,12 @@ def test_a4_exports_to_exactly_a4_at_300_dpi_with_scale_2() -> None:
     assert round(width * 2 / 300 * 25.4) == 210 and round(height * 2 / 300 * 25.4) == 297
 
 
-def test_every_theme_with_a_portrait_layout_comes_in_a4() -> None:
+def test_themes_laid_out_in_canvas_units_come_in_a4_and_fixed_pixel_themes_do_not() -> None:
     for theme in load_themes().values():
-        assert ("a4" in theme.variants) == ("portrait" in theme.variants), theme.theme_id
+        expected = "portrait" in theme.variants and theme.ir_version != "graphic-ir.v1"
+        assert ("a4" in theme.variants) == expected, theme.theme_id
+    for theme_id in ("quote_card", "product_card", "announcement"):  # fixed 1080 px coordinates
+        assert "a4" not in load_themes()[theme_id].variants
 
 
 def _theme(vars_: dict[str, object], items: list[dict[str, object]] | None = None) -> dict[str, object]:
@@ -84,14 +88,34 @@ def test_theme_without_a_portrait_layout_does_not_get_a4() -> None:
     assert "a4" not in parse_theme(raw).variants
 
 
-@pytest.mark.parametrize("theme_id", sorted(load_themes()))
+def _text_anchors(ir: GraphicIR) -> dict[str, float]:
+    """Each text node's anchor (left edge, centre, or right edge by alignment) as a fraction of the canvas width.
+
+    The anchor, not the width, is compared: display text sized from the canvas height is wider on the
+    taller A4 page by design, but it must stay anchored where the portrait layout puts it.
+    """
+
+    width = ir.canvas.width
+    anchors = {}
+    for node in iter_nodes(list(ir.nodes)):
+        if isinstance(node, TextNode):
+            offset = {"left": 0.0, "center": 0.5, "right": 1.0}[node.align]
+            anchors[node.node_id] = (node.x + node.width * offset) / width
+    return anchors
+
+
+@pytest.mark.parametrize("theme_id", sorted(t for t, theme in load_themes().items() if "a4" in theme.variants))
 def test_a4_layout_is_the_portrait_layout_scaled(theme_id: str) -> None:
-    """Same items in the same order; every box sits at the same fraction of the canvas (within rounding)."""
+    """Same items in the same order; every text box sits at the same fraction of the canvas width."""
 
     portrait = compile_template(request(theme_id, "portrait"))
     a4 = compile_template(request(theme_id, "a4"))
     assert a4.canvas.width == 1240 and a4.canvas.height == 1754
     assert [node.node_id for node in portrait.nodes] == [node.node_id for node in a4.nodes]
+    portrait_anchors, a4_anchors = _text_anchors(portrait), _text_anchors(a4)
+    assert portrait_anchors.keys() == a4_anchors.keys()
+    for node_id, anchor in portrait_anchors.items():
+        assert a4_anchors[node_id] == pytest.approx(anchor, abs=0.01), node_id
 
 
 def test_make_all_means_the_screen_sizes_and_a4_is_asked_for_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -104,13 +128,13 @@ def test_make_all_means_the_screen_sizes_and_a4_is_asked_for_by_name(tmp_path: P
 
     monkeypatch.setattr("book_production_platform.graphics_production.cli.run_batch", fake_run_batch)
     for variants in (["all"], ["a4"]):
-        args = ["make", "--theme", "quote_card", "--set", "quote=Hi", "--set", "author=Me", "--output", str(tmp_path),
+        args = ["make", "--theme", "bold_editorial", "--set", "headline=Hi", "--output", str(tmp_path),
                 "--idempotency-key", "k"]
         for variant in variants:
             args += ["--variant", variant]
         with pytest.raises(SystemExit):
             main(args)
-    assert captured == [["square", "portrait", "story"], ["a4"]]
+    assert captured == [["square", "portrait", "story", "landscape"], ["a4"]]
 
 
 def test_expand_variants_gives_a4_its_canvas() -> None:
@@ -301,3 +325,16 @@ def test_cli_press_export(stubbed_batch: Path, tmp_path: Path, capsys: pytest.Ca
     code = main(["export", "--manifest", str(stubbed_batch), "--output", str(tmp_path / "cli2"), "--cmyk-icc", str(junk)])
     assert code != 0
     assert "icc_profile_unreadable" in capsys.readouterr().err
+
+
+def test_campaign_all_means_the_screen_sizes(tmp_path: Path) -> None:
+    from book_production_platform.graphics_production.campaign import (
+        CampaignError,
+        load_campaign,
+    )
+
+    plan = {"schema_version": "graphic-campaign.v1", "campaign_id": "c", "brand": {"primary": "#14213D", "accent": "#FCA311"},
+            "variants": ["all"], "posts": [{"id": "p1", "content": {"headline": "Hi"}}]}
+    assert load_campaign(plan, tmp_path).variants == list(SOCIAL_VARIANTS)
+    with pytest.raises(CampaignError, match="unknown_variant"):
+        load_campaign({**plan, "variants": ["a4"]}, tmp_path)

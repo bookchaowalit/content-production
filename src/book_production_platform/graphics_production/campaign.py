@@ -35,7 +35,7 @@ from typing import Any
 from .composer import compose
 from .jobs import run_batch
 from .layouts import TEXT_SLOTS, save_layout, similarity
-from .themes import VARIANT_SIZES
+from .themes import SOCIAL_VARIANTS, VARIANT_SIZES
 
 CAMPAIGN_SCHEMA = "graphic-campaign.v1"
 MAX_POSTS = 200
@@ -95,9 +95,9 @@ def load_campaign(plan: Mapping[str, Any], plan_dir: str | Path) -> Campaign:
     if not campaign_id or not campaign_id.replace("-", "").replace("_", "").isalnum():
         raise CampaignError("campaign_id_required")
     variants = list(plan.get("variants") or ["portrait"])
-    if "all" in variants:
-        variants = list(VARIANT_SIZES)
-    if any(variant not in VARIANT_SIZES for variant in variants):
+    if "all" in variants:  # the screen sizes; composed layouts do not come in print sizes yet
+        variants = list(SOCIAL_VARIANTS)
+    if any(variant not in SOCIAL_VARIANTS for variant in variants):
         raise CampaignError(f"unknown_variant:{variants}")
     posts: list[Post] = []
     for raw in plan.get("posts") or []:

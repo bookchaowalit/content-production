@@ -206,9 +206,11 @@ def parse_theme(raw: Mapping[str, Any], *, source: str = "") -> Theme:
     variants = tuple(raw.get("variants") or ())
     if not variants or any(variant not in VARIANT_SIZES for variant in variants):
         raise ThemeError(f"theme_variants_invalid:{theme_id}")
-    for variant, base in VARIANT_FALLBACK.items():
-        if base in variants and variant not in variants:
-            variants = (*variants, variant)
+    ir_version_raw = raw.get("ir_version", "graphic-ir.v2")
+    if ir_version_raw != "graphic-ir.v1":  # v1 themes place items in fixed pixels, so they cannot borrow a layout
+        for variant, base in VARIANT_FALLBACK.items():
+            if base in variants and variant not in variants:
+                variants = (*variants, variant)
     ir_version = raw.get("ir_version", "graphic-ir.v2")
     if ir_version not in ("graphic-ir.v1", "graphic-ir.v2"):
         raise ThemeError(f"theme_ir_version_invalid:{theme_id}")
