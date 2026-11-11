@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .approval import DECISIONS, approval_status, record_approval
 from .jobs import IdempotencyConflict, ReplayIntegrityError, run_campaign_job
 from .proposal_trace import split_proposal, trace_proposal
 
@@ -120,11 +121,34 @@ def _parser() -> argparse.ArgumentParser:
     shadow.add_argument("--split", default=None, help="marketing-eval-split.v1 JSON naming dev case IDs")
     shadow.add_argument("--budget-root", default=DEFAULT_BUDGET_ROOT, help="persistent AI cost ledger directory")
     shadow.add_argument("--output", required=True, help="path for the metadata-only shadow report JSON")
+    approve = commands.add_parser("approve", help="record a review decision bound to the package sha256 (never publishes)")
+    approve.add_argument("--package", required=True, help="path to the .campaign.json package")
+    approve.add_argument("--decision", required=True, choices=DECISIONS)
+    approve.add_argument("--reviewer", required=True, help="reviewer label (role or initials, no e-mail needed)")
+    approve.add_argument("--note", default="")
+    status = commands.add_parser("approval-status", help="pending_review / approved / changes_requested / rejected / stale; exit 0 only when approved")
+    status.add_argument("--package", required=True)
     return parser
+
+
+def _run_approval(args: argparse.Namespace) -> int:
+    try:
+        if args.command == "approve":
+            record = record_approval(args.package, decision=args.decision, reviewer=args.reviewer, note=args.note)
+            print(json.dumps({"status": record["decision"], "package": record["package"]}, ensure_ascii=False))
+            return 0
+        state = approval_status(args.package)
+    except ValueError as exc:
+        print(f"approval error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(state, ensure_ascii=False))
+    return 0 if state["status"] == "approved" else 3
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command in {"approve", "approval-status"}:
+        return _run_approval(args)
     if args.command == "propose":
         return _run_propose(args)
     if args.command == "brief-shadow":

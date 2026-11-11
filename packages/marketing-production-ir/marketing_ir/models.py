@@ -37,6 +37,11 @@ class AssetSpec(ContractModel):
     # A/B variant label (added in campaign-package-v2). Omitted from hashes and
     # packages while unset, so v1 requests keep their exact bytes.
     variant: str | None = Field(default=None, pattern=r"^[A-Z]$")
+    # campaign-package-v3 (all optional, omitted from hashes and packages while unset):
+    # email subject / preheader, and a planned date (metadata only, never scheduled).
+    subject: str | None = Field(default=None, max_length=1_000)
+    preheader: str | None = Field(default=None, max_length=1_000)
+    planned_at: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$")
 
 
 class UtmSpec(ContractModel):
@@ -45,6 +50,23 @@ class UtmSpec(ContractModel):
     landing_url: str = Field(min_length=9, max_length=2_000)
     campaign: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._-]+$")
     term: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._-]+$")
+
+
+class BrandRules(ContractModel):
+    """Brand voice rules checked on every copy (never rewritten)."""
+
+    forbidden_words: list[str] = Field(default_factory=list, max_length=200)
+
+
+class ExperimentPlan(ContractModel):
+    """Inputs for the A/B sample-size and duration plan (two-proportion z-test)."""
+
+    metric: str = Field(min_length=1, max_length=60, pattern=r"^[A-Za-z0-9._-]+$")
+    baseline_rate: float = Field(gt=0, lt=1)
+    minimum_detectable_lift: float = Field(gt=0, le=10)
+    daily_reach_per_variant: int = Field(ge=1, le=100_000_000)
+    alpha: float = Field(default=0.05, gt=0, lt=0.5)
+    power: float = Field(default=0.8, ge=0.5, lt=1)
 
 
 class CampaignRequest(ContractModel):
@@ -57,6 +79,9 @@ class CampaignRequest(ContractModel):
     assets: list[AssetSpec] = Field(min_length=1, max_length=100)
     asset_root: str | None = None
     utm: UtmSpec | None = None
+    timezone: str | None = Field(default=None, min_length=1, max_length=64)
+    brand_rules: BrandRules | None = None
+    experiment_plan: ExperimentPlan | None = None
 
 
 class CampaignIR(ContractModel):
@@ -70,6 +95,9 @@ class CampaignIR(ContractModel):
     source_refs: list[str] = Field(default_factory=list)
     assumptions: dict[str, str] = Field(default_factory=dict)
     utm: UtmSpec | None = None
+    timezone: str | None = None
+    brand_rules: BrandRules | None = None
+    experiment_plan: ExperimentPlan | None = None
     publish_enabled: Literal[False] = False
     spend_enabled: Literal[False] = False
 

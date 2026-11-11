@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import ValidationError
 
@@ -86,6 +89,9 @@ def validate_request(request: Mapping[str, Any] | CampaignRequest) -> list[Valid
             issues.append(uri_issue)
         if asset.text is not None and not asset.text.strip():
             issues.append(_issue("asset_text_required", f"{asset_path}.text", "asset text cannot be blank"))
+        issues.extend(_email_field_issues(asset, asset_path))
+        if asset.planned_at is not None and not _real_date(asset.planned_at):
+            issues.append(_issue("invalid_planned_at", f"{asset_path}.planned_at", "planned_at must be a real date (YYYY-MM-DD[THH:MM])"))
 
     for channel in parsed.channels:
         if channel not in channels_with_assets:
@@ -93,7 +99,47 @@ def validate_request(request: Mapping[str, Any] | CampaignRequest) -> list[Valid
     issues.extend(_variant_issues(parsed.assets))
     if parsed.utm is not None:
         issues.extend(_utm_issues(parsed.utm.landing_url))
+    if parsed.timezone is not None and not _known_timezone(parsed.timezone):
+        issues.append(_issue("unknown_timezone", "timezone", "timezone must be an IANA name such as Asia/Bangkok"))
+    if parsed.brand_rules is not None and any(not word.strip() for word in parsed.brand_rules.forbidden_words):
+        issues.append(_issue("forbidden_word_blank", "brand_rules.forbidden_words", "forbidden words cannot be blank"))
     return issues
+
+
+EMAIL_FIELD_LIMITS = {"subject": 150, "preheader": 150}
+
+
+def _email_field_issues(asset: AssetSpec, path: str) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    for name, limit in EMAIL_FIELD_LIMITS.items():
+        value = getattr(asset, name)
+        if value is None:
+            continue
+        if asset.kind != "email":
+            issues.append(_issue("email_field_not_email", f"{path}.{name}", "subject and preheader are only for email assets"))
+        elif not value.strip():
+            issues.append(_issue(f"{name}_required", f"{path}.{name}", f"{name} cannot be blank"))
+        elif len(unicodedata.normalize("NFC", value)) > limit:
+            issues.append(_issue(f"{name}_too_long", f"{path}.{name}", f"{name} exceeds {limit} characters"))
+    return issues
+
+
+def _real_date(value: str) -> bool:
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M" if "T" in value else "%Y-%m-%d")
+    except ValueError:
+        return False
+    return True
+
+
+def _known_timezone(name: str) -> bool:
+    if name.startswith(("/", ".")) or ".." in name:
+        return False
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+    return True
 
 
 MAX_VARIANTS = 4
@@ -168,4 +214,7 @@ def compile_campaign(request: Mapping[str, Any] | CampaignRequest) -> CampaignIR
         source_refs=[asset.uri for asset in normalized_assets],
         assumptions={"execution": "review_only", "publish": "disabled", "spend": "disabled"},
         utm=parsed.utm,
+        timezone=parsed.timezone,
+        brand_rules=parsed.brand_rules,
+        experiment_plan=parsed.experiment_plan,
     )

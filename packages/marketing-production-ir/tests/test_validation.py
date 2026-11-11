@@ -136,3 +136,34 @@ def test_variants_and_utm_are_validated_and_compiled() -> None:
     assert [issue.code for issue in validate_request(payload)] == ["unsafe_landing_url"]
     with pytest.raises(ValidationError):
         CampaignRequest.model_validate({**payload, "assets": [{**payload["assets"][0], "variant": "ab"}]})
+
+
+def test_v3_optional_fields_validate_and_compile(tmp_path: Path) -> None:
+    payload = _request(str(tmp_path))
+    payload["assets"][0].update(kind="email", subject="ข่าวดี", preheader="อ่านต่อ", planned_at="2026-12-01T09:00")
+    payload.update(
+        timezone="Asia/Bangkok",
+        brand_rules={"forbidden_words": ["ฟรี"]},
+        experiment_plan={"metric": "ctr", "baseline_rate": 0.05, "minimum_detectable_lift": 0.3, "daily_reach_per_variant": 100},
+    )
+    assert validate_request(payload) == []
+    ir = compile_campaign(payload)
+    assert ir.timezone == "Asia/Bangkok" and ir.experiment_plan is not None and ir.brand_rules is not None
+
+
+@pytest.mark.parametrize(
+    ("asset_update", "extra", "code"),
+    [
+        ({"subject": "hi"}, {}, "email_field_not_email"),
+        ({"kind": "email", "preheader": "p" * 151}, {}, "preheader_too_long"),
+        ({"kind": "email", "subject": "  "}, {}, "subject_required"),
+        ({"planned_at": "2026-13-01"}, {}, "invalid_planned_at"),
+        ({}, {"timezone": "../zoneinfo/UTC"}, "unknown_timezone"),
+        ({}, {"brand_rules": {"forbidden_words": [" "]}}, "forbidden_word_blank"),
+    ],
+)
+def test_v3_field_issues(tmp_path: Path, asset_update: dict, extra: dict, code: str) -> None:
+    payload = _request(str(tmp_path))
+    payload["assets"][0].update(asset_update)
+    payload.update(extra)
+    assert code in [issue.code for issue in validate_request(payload)]

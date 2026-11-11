@@ -142,6 +142,14 @@ def test_replay_of_v1_manifest_still_works_after_recipe_upgrade(asset_root: Path
     assert len(read_history(asset_root / "out")) == 1
 
 
+def test_replay_of_v2_manifest_still_works_after_v3(asset_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(jobs, "RECIPE_VERSION", "campaign-package-v2")
+    first = run_campaign_job(_payload(asset_root), asset_root / "out", "upgrade-2")
+    monkeypatch.undo()
+    replay = run_campaign_job(_payload(asset_root), asset_root / "out", "upgrade-2")
+    assert replay.replayed is True and replay.package == first.package
+
+
 def test_v1_request_package_has_no_v2_keys(asset_root: Path) -> None:
     result = run_campaign_job(_payload(asset_root), asset_root / "out", "plain-1")
     assert result.package is not None
@@ -176,7 +184,7 @@ def test_guide_has_every_channel_copy_slot_and_review_only_ending(asset_root: Pa
     width, height, _ = FRAME_SIZES["facebook"]
     assert f"Width {width} px × Height {height} px" in values and export_name(image) in values
     assert any(step.tool.startswith("Post details ▸ A/B test") and step.value == "A=ig-copy, B=ig-copy-b" for step in guide.steps)
-    assert guide.program == "Mailchimp + Meta Business Suite + LINE Official Account Manager + LinkedIn + WordPress (Block Editor) + Canva"
+    assert guide.program == "Mailchimp + Meta Business Suite + LINE Official Account Manager + LinkedIn + WordPress (Block Editor) + Canva + LibreOffice Calc"
     manual = (_job_dir(asset_root / "out", "guide-1") / "MANUAL-STEPS.md").read_text(encoding="utf-8")
     assert "review-only" in manual and package["links"][0]["url"] in manual
 
