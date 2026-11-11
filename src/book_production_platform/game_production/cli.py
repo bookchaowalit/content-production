@@ -21,6 +21,10 @@ from book_production_platform.game_production.export import (
     export_game_player,
 )
 from book_production_platform.game_production.jobs import compose_game_scene
+from book_production_platform.game_production.level_pack import (
+    build_level_pack,
+    plan_level_pack,
+)
 
 
 class _JsonArgumentParser(argparse.ArgumentParser):
@@ -49,6 +53,14 @@ def _parser() -> argparse.ArgumentParser:
     export.add_argument("--output-root", type=Path, required=True)
     export.add_argument("--unity", type=Path, required=True)
     export.add_argument("--timeout-s", type=int, default=DEFAULT_EXPORT_TIMEOUT_SECONDS)
+
+    pack = commands.add_parser("pack", help="check a level pack's difficulty curve and build every level")
+    pack.add_argument("--pack", type=Path, required=True, help="game-level-pack.v1 file")
+    pack.add_argument("--output-root", type=Path, default=None)
+    pack.add_argument("--unity", type=Path, default=None)
+    pack.add_argument("--timeout-s", type=int, default=120)
+    pack.add_argument("--asset-root", type=Path, default=None)
+    pack.add_argument("--plan-only", action="store_true", help="validate and report the curve without Unity")
 
     benchmark = commands.add_parser("benchmark", help="run the 20-case local acceptance suite")
     benchmark.add_argument("--fixtures", type=Path, required=True)
@@ -125,6 +137,34 @@ def game_main(argv: list[str]) -> int:
                 "replay": exported.replay,
                 "model_calls": exported.model_calls,
                 "trace_job_id": exported.trace_job_id,
+            }
+        )
+        return 0
+
+    if args.command == "pack":
+        try:
+            if args.plan_only:
+                _emit({"status": "planned", **plan_level_pack(args.pack).summary()})
+                return 0
+            if args.output_root is None or args.unity is None:
+                _emit({"status": "rejected", "error": "invalid_cli_arguments"})
+                return 2
+            built = build_level_pack(args.pack, args.output_root, args.unity, timeout_s=args.timeout_s, asset_root=args.asset_root)
+        except (GameInputError, GameJobError) as error:
+            _emit({"status": "rejected", "error": error.code})
+            return 2
+        except OSError:
+            _emit({"status": "rejected", "error": "cli_io_error"})
+            return 2
+        _emit(
+            {
+                "status": built.status,
+                "fingerprint": built.fingerprint,
+                "artifact_dir": str(built.artifact_dir),
+                "artifact_hashes": built.artifact_hashes,
+                "replay": built.replay,
+                "levels": list(built.levels),
+                "model_calls": built.model_calls,
             }
         )
         return 0

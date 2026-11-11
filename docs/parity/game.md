@@ -37,7 +37,7 @@ and are not runtime-verified.
 | Traceability per run | — | **have (new)** | — | `trace.json` (validate, assets, runtime/template hashes, Unity stages + test totals, gameplay QA, publish), `history.jsonl`, `ir.json`; compose and export, success and failure |
 | "How would I do this by hand" | tutorials | **have (new)** | — | Unity 6 guide: every entity's name, cell, exact Transform position, components and values; Play mode check in route order; Build Profiles guide for export |
 | Moving hazards / enemies | yes | **partial (new)** | P1 | GameIR v3 `hazards` (ping-pong patrol, `step_ticks` per cell), time-expanded safe-run proof (`unsafe_hazard_schedule`), metrics/map/guide/QA done and tested. Unity `HazardPatrol`, compiler slots and PlayMode tests are written but **not run**: the composer template scene still has no hazard slots, so v3 levels with hazards are refused with `unsupported_game_feature` until `BuildComposerTemplate` is run on a licensed Unity. V1B adapter does not propose hazards |
-| Multiple levels / scene flow | Build Settings scene list / SceneTree | missing | P1 | a level-pack IR + per-level metrics + difficulty curve; needs SceneCompiler multi-scene support |
+| Multiple levels / scene flow | Build Settings scene list / SceneTree | **partial (new)** | P1 | `game pack`: `game-level-pack.v1` (2–12 GameIR files in play order), per-level metrics, difficulty curve with an ascending check (`difficulty_not_ascending`), each level built as its own `game build` job, content-addressed pack manifest + `difficulty-curve.svg` + Unity guide for one project in Build Profiles order. Missing: a runtime scene-flow component (next level on win) and a single combined Unity project |
 | Doors / keys / switches | scripting | missing | P2 | |
 | Animation / sprite sheets | Animator / AnimationPlayer | missing | P3 | palette sprites only |
 | UI (HUD, score, menus) | uGUI / UI Toolkit / Control | missing | P2 | |
@@ -82,8 +82,9 @@ and are not runtime-verified.
 
 1. P1 — Finish hazards on Unity (template rebuild + real build), then V1B
    allowlist + eval cases.
-2. P1 — Level packs: ordered levels, per-level metrics, monotone difficulty
-   check, one scene per level in Build Profiles.
+2. P1 — Level packs, Unity half: a `LevelFlow` runtime component (load the next
+   Build Profiles scene on win) and one combined project with every scene,
+   verified by a PlayMode test that plays through the pack.
 3. P2 — Tilemap output option (walls as a Tilemap with a CompositeCollider2D)
    to match how designers usually build grid levels.
 4. P2 — HUD with collected / total counter.
