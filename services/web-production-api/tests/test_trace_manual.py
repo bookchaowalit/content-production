@@ -182,7 +182,7 @@ def test_manual_guide_mirrors_every_element_of_the_ir(tmp_path: Path) -> None:
         ir.title, ir.description, ir.hero_heading, ir.hero_body, ir.hero_cta.label, ir.hero_cta.href, ir.footer_text,
         ir.theme.primary, ir.theme.background, ir.theme.foreground, ir.slug, "og:locale=en_US",
         mix_hex(ir.theme.primary, 0.12, ir.theme.background), alpha_rgba(ir.theme.foreground, 0.18),
-        *(f"{width}px" for _, width in BREAKPOINTS), "Focused (keyboard)", "#FBBF24",
+        *(f"{width}px" for _, width in BREAKPOINTS), "Focused (keyboard)", "Outline color #FFFFFF",
         "Features", "Pricing", "Frequently asked questions", "Ready to get started?",
     ]
     assert ir.secondary_cta is not None

@@ -18,9 +18,30 @@ from web_ir import LinkSpec, PageIR
 BREAKPOINTS: tuple[tuple[str, int], ...] = (("tablet", 991), ("mobile", 767))
 OG_LOCALES = {"th": "th_TH", "en": "en_US"}
 ON_PRIMARY = "#FFFFFF"
-FOCUS_RING = "#FBBF24"
 FONT_STACK = "system-ui, sans-serif"
 CONTAINER_MAX_PX = 1120
+# Hero heading leading: Thai stacks vowels and tone marks above the x-height, so it needs more room than Latin.
+THAI_HEADING_LINE_HEIGHT = 1.35
+LATIN_HEADING_LINE_HEIGHT = 1.05
+# Lead form fields: (input id suffix, HTML type, autocomplete). ``message`` is a textarea.
+FORM_FIELDS: dict[str, tuple[str, str]] = {
+    "name": ("text", "name"),
+    "email": ("email", "email"),
+    "phone": ("tel", "tel"),
+    "message": ("textarea", "off"),
+}
+
+
+def heading_line_height(language: str) -> float:
+    return THAI_HEADING_LINE_HEIGHT if language == "th" else LATIN_HEADING_LINE_HEIGHT
+
+
+def form_labels(language: str) -> dict[str, str]:
+    """Visible field labels of the lead form (fixed by the template, not part of the request)."""
+
+    if language == "en":
+        return {"name": "Name", "email": "Email", "phone": "Phone", "message": "Message"}
+    return {"name": "ชื่อ", "email": "อีเมล", "phone": "เบอร์โทรศัพท์", "message": "ข้อความ"}
 
 
 def section_labels(language: str) -> dict[str, str]:
@@ -31,6 +52,7 @@ def section_labels(language: str) -> dict[str, str]:
         "features": "Features" if english else "จุดเด่น",
         "pricing": "Pricing" if english else "ราคา",
         "faq": "Frequently asked questions" if english else "คำถามที่พบบ่อย",
+        "contact": "Contact us" if english else "ติดต่อเรา",
         "ready": "Ready to get started?" if english else "พร้อมเริ่มต้นหรือยัง",
     }
 
@@ -71,6 +93,31 @@ def _faq(ir: PageIR, label: str) -> str:
         '\n    <section class="faq container" id="faq" aria-labelledby="faq-title">'
         f'\n      <h2 id="faq-title">{label}</h2>'
         f"\n      {items}"
+        "\n    </section>"
+    )
+
+
+def _field(name: str, label: str) -> str:
+    kind, autocomplete = FORM_FIELDS[name]
+    control = (
+        f'<textarea id="lead-{name}" name="{name}" rows="4" required></textarea>'
+        if kind == "textarea"
+        else f'<input id="lead-{name}" name="{name}" type="{kind}" autocomplete="{autocomplete}" required>'
+    )
+    return f'<p class="form-field"><label for="lead-{name}">{_text(label)}</label>{control}</p>'
+
+
+def _contact_form(ir: PageIR, label: str) -> str:
+    form = ir.contact_form
+    if form is None:
+        return ""
+    labels = form_labels(ir.language)
+    fields = "".join(_field(name, labels[name]) for name in form.fields)
+    return (
+        '\n    <section class="contact container" id="contact" aria-labelledby="contact-title">'
+        f'\n      <h2 id="contact-title">{label}</h2>'
+        f'\n      <form class="lead-form" action="{_text(form.action)}" method="post">{fields}'
+        f'<p><button class="button" type="submit">{_text(form.submit_label)}</button></p></form>'
         "\n    </section>"
     )
 
@@ -123,7 +170,7 @@ def render_html(ir: PageIR, css_filename: str = "styles.css", hero_image_filenam
     <section class="features container" aria-labelledby="features-title">
       <h2 id="features-title">{labels["features"]}</h2>
       <div class="feature-grid">{features}</div>
-    </section>{_pricing(ir, labels["pricing"])}{_faq(ir, labels["faq"])}
+    </section>{_pricing(ir, labels["pricing"])}{_faq(ir, labels["faq"])}{_contact_form(ir, labels["contact"])}
     <section class="cta container" id="signup" aria-labelledby="cta-title">
       <h2 id="cta-title">{labels["ready"]}</h2>
       <p>{_link(ir.hero_cta)}</p>
@@ -142,6 +189,21 @@ def pricing_columns(ir: PageIR) -> int:
     return max(1, len(ir.pricing))
 
 
+def _form_css(ir: PageIR) -> str:
+    """Lead-form rules, only when the page has a form (inputs: 1px foreground border, ≥ 3:1 by the contrast QA)."""
+
+    if ir.contact_form is None:
+        return ""
+    return """
+.contact { padding: 0 0 4rem; }
+.lead-form { display: grid; gap: 1rem; max-width: 40rem; }
+.lead-form p { margin: 0; }
+.lead-form label { display: block; font-weight: 700; margin-bottom: .25rem; }
+.lead-form input, .lead-form textarea { display: block; width: 100%; padding: .75rem; border: 1px solid var(--foreground); border-radius: .5rem; background: var(--background); color: var(--foreground); font: inherit; }
+.lead-form input:focus-visible, .lead-form textarea:focus-visible { outline: .2rem solid var(--foreground); outline-offset: .2rem; }
+.lead-form .button { border: 0; font: inherit; font-weight: 700; cursor: pointer; }"""
+
+
 def render_css(ir: PageIR) -> str:
     """Render local-only responsive CSS with a visible keyboard focus state."""
 
@@ -156,13 +218,14 @@ def render_css(ir: PageIR) -> str:
 body {{ margin: 0; background: var(--background); color: var(--foreground); font-family: {FONT_STACK}; line-height: 1.6; }}
 .container {{ width: min({CONTAINER_MAX_PX}px, calc(100% - 2rem)); margin: 0 auto; }}
 .hero {{ background: var(--primary); color: {ON_PRIMARY}; padding: 5rem 0; }}
-.hero h1 {{ max-width: 16ch; font-size: clamp(2.25rem, 7vw, 5rem); line-height: 1.05; margin: .25rem 0 1rem; }}
+.hero h1 {{ max-width: 16ch; font-size: clamp(2.25rem, 7vw, 5rem); line-height: {heading_line_height(ir.language):g}; margin: .25rem 0 1rem; }}
 .hero-body {{ max-width: 60ch; font-size: 1.125rem; }}
 .hero-image {{ display: block; width: 100%; max-width: 480px; height: auto; margin-top: 2rem; border-radius: 12px; }}
 .eyebrow {{ font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }}
 .button {{ display: inline-block; border-radius: .5rem; background: var(--foreground); color: {ON_PRIMARY}; padding: .75rem 1.1rem; text-decoration: none; font-weight: 700; }}
 .hero .button {{ background: {ON_PRIMARY}; color: var(--foreground); }}
-.button:focus-visible {{ outline: .2rem solid {FOCUS_RING}; outline-offset: .2rem; }}
+.button:focus-visible {{ outline: .2rem solid var(--foreground); outline-offset: .2rem; }}
+.hero .button:focus-visible {{ outline-color: {ON_PRIMARY}; }}
 .features {{ padding: 4rem 0; }}
 .feature-grid {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }}
 .feature-card {{ border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent); border-radius: .75rem; padding: 1.25rem; }}
@@ -173,7 +236,7 @@ body {{ margin: 0; background: var(--background); color: var(--foreground); font
 .faq {{ padding: 0 0 4rem; }}
 .faq-item {{ border-bottom: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent); padding: 1rem 0; }}
 .faq-item summary {{ cursor: pointer; font-weight: 700; }}
-.faq-item summary:focus-visible {{ outline: .2rem solid {FOCUS_RING}; outline-offset: .2rem; }}
+.faq-item summary:focus-visible {{ outline: .2rem solid var(--foreground); outline-offset: .2rem; }}{_form_css(ir)}
 .cta {{ border-radius: .75rem; background: color-mix(in srgb, var(--primary) 12%, var(--background)); padding: 2rem; margin-bottom: 4rem; }}
 .secondary-cta {{ margin-top: 1rem; }}
 .footer {{ border-top: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent); padding: 2rem 0; }}
@@ -188,4 +251,15 @@ body {{ margin: 0; background: var(--background); color: var(--foreground); font
 '''
 
 
-__all__ = ["BREAKPOINTS", "OG_LOCALES", "pricing_columns", "render_css", "render_html", "section_labels"]
+__all__ = [
+    "BREAKPOINTS",
+    "FORM_FIELDS",
+    "OG_LOCALES",
+    "THAI_HEADING_LINE_HEIGHT",
+    "form_labels",
+    "heading_line_height",
+    "pricing_columns",
+    "render_css",
+    "render_html",
+    "section_labels",
+]

@@ -2,6 +2,7 @@
 
 from .models import (
     ArtifactRef,
+    ContactFormSpec,
     FaqItem,
     FeatureSpec,
     HeroImageSpec,
@@ -16,6 +17,7 @@ from .validation import compile_page, validate_request
 
 __all__ = [
     "ArtifactRef",
+    "ContactFormSpec",
     "FaqItem",
     "FeatureSpec",
     "HeroImageSpec",

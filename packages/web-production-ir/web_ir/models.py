@@ -63,6 +63,24 @@ class FaqItem(ContractModel):
     answer: str = Field(min_length=1, max_length=1_000)
 
 
+FormField = Literal["name", "email", "phone", "message"]
+
+
+class ContactFormSpec(ContractModel):
+    """A static lead form; the engine has no backend, so ``action`` is a relative path the host answers (POST)."""
+
+    action: str = Field(min_length=2, max_length=200)
+    fields: list[FormField] = Field(min_length=1, max_length=4)
+    submit_label: str = Field(min_length=1, max_length=60)
+
+    @field_validator("fields")
+    @classmethod
+    def _unique_fields(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("form fields must be unique")
+        return value
+
+
 class PageRequest(ContractModel):
     schema_version: Literal["page-request.v1"] = "page-request.v1"
     page_id: str = Field(min_length=1, max_length=80)
@@ -76,6 +94,7 @@ class PageRequest(ContractModel):
     features: list[FeatureSpec] = Field(max_length=6)
     pricing: list[PricingPlan] = Field(default_factory=list, max_length=3)
     faq: list[FaqItem] = Field(default_factory=list, max_length=8)
+    contact_form: ContactFormSpec | None = None
     secondary_cta: LinkSpec | None = None
     footer_text: str = Field(default="", max_length=500)
     theme: ThemeSpec = Field(default_factory=ThemeSpec)
@@ -96,6 +115,7 @@ class PageIR(ContractModel):
     features: list[FeatureSpec]
     pricing: list[PricingPlan] = Field(default_factory=list)
     faq: list[FaqItem] = Field(default_factory=list)
+    contact_form: ContactFormSpec | None = None
     secondary_cta: LinkSpec | None = None
     footer_text: str = ""
     theme: ThemeSpec

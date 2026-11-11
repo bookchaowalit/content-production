@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .models import LinkSpec, PageIR, PageRequest, ValidationIssue
+from .models import ContactFormSpec, LinkSpec, PageIR, PageRequest, ValidationIssue
 
 
 def _issue(code: str, path: str, message: str) -> ValidationIssue:
@@ -28,6 +28,24 @@ def _check_href(link: LinkSpec, path: str) -> ValidationIssue | None:
     if not (href.startswith(("/", "#")) or lowered.startswith("mailto:")):
         return _issue("unsupported_href", f"{path}.href", "href must be a relative path, fragment, or mailto link")
     return None
+
+
+_FORM_ACTION_FORBIDDEN = frozenset("#?\\ \"'<>")
+
+
+def _check_form(form: ContactFormSpec) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    action = form.action.strip()
+    if action.lower().startswith(("javascript:", "data:", "http:", "https:", "//")):
+        issues.append(_issue("unsafe_form_action", "contact_form.action", "form action must be a relative path the host answers"))
+    elif not action.startswith("/") or _FORM_ACTION_FORBIDDEN & set(action):
+        issues.append(_issue("unsupported_form_action", "contact_form.action", "form action must be a plain relative path such as /api/lead"))
+    if not {"email", "phone"} & set(form.fields):
+        issues.append(_issue("form_contact_field_required", "contact_form.fields", "a lead form needs an email or phone field"))
+    label = _check_text(form.submit_label, "contact_form.submit_label", "form_submit_label_required")
+    if label is not None:
+        issues.append(label)
+    return issues
 
 
 def validate_request(request: Mapping[str, Any] | PageRequest) -> list[ValidationIssue]:
@@ -80,6 +98,8 @@ def validate_request(request: Mapping[str, Any] | PageRequest) -> list[Validatio
             issue = _check_text(value, path, "faq_text_required")
             if issue is not None:
                 issues.append(issue)
+    if parsed.contact_form is not None:
+        issues.extend(_check_form(parsed.contact_form))
     return issues
 
 
@@ -102,6 +122,7 @@ def compile_page(request: Mapping[str, Any] | PageRequest) -> PageIR:
         features=parsed.features,
         pricing=parsed.pricing,
         faq=parsed.faq,
+        contact_form=parsed.contact_form,
         secondary_cta=parsed.secondary_cta,
         footer_text=parsed.footer_text,
         theme=parsed.theme,

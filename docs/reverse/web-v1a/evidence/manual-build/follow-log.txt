@@ -1,0 +1,134 @@
+  1 [ตั้งค่าหน้าและ SEO] page settings only (slug / no og:image: no markup change)
+  2 [ตั้งค่าหน้าและ SEO] page settings only (slug / no og:image: no markup change)
+  3 [ตั้งค่าหน้าและ SEO] <title>
+  4 [ตั้งค่าหน้าและ SEO] meta description
+  5 [ตั้งค่าหน้าและ SEO] og:title
+  6 [ตั้งค่าหน้าและ SEO] og:description
+  7 [ตั้งค่าหน้าและ SEO] html lang + og:locale; og:type/twitter:card per note
+  8 [ตั้งค่าหน้าและ SEO] page settings only (slug / no og:image: no markup change)
+  9 [ธีม สี และฟอนต์] variable --primary
+ 10 [ธีม สี และฟอนต์] variable --background
+ 11 [ธีม สี และฟอนต์] variable --foreground
+ 12 [ธีม สี และฟอนต์] body colours
+ 13 [ธีม สี และฟอนต์] body font
+ 14 [ธีม สี และฟอนต์] body margin
+ 15 [ธีม สี และฟอนต์] body font size
+ 16 [ธีม สี และฟอนต์] * box-sizing (the plain HTML/CSS path of this step)
+ 17 [ธีม สี และฟอนต์] tag default h2
+ 18 [ธีม สี และฟอนต์] tag default h3
+ 19 [ธีม สี และฟอนต์] tag default p
+ 20 [ธีม สี และฟอนต์] tag default ul
+ 21 [ส่วน Hero] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 22 [ส่วน Hero] .hero style
+ 23 [ส่วน Hero] .container style
+ 24 [ส่วน Hero] .eyebrow style (from note)
+ 25 [ส่วน Hero] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 26 [ส่วน Hero] All H1 Headings
+ 27 [ส่วน Hero] .hero-body style (from note)
+ 28 [ส่วน Hero] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 29 [ส่วน Hero] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 30 [ส่วน Hero] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 31 [ส่วน Hero] combo class is-hero on the hero button
+ 32 [ส่วน Hero] .button style
+ 33 [ส่วน Hero] .button.is-hero style
+ 34 [ส่วน Hero] .button focus state
+ 35 [ส่วน Hero] .button.is-hero focus state
+ 36 [ส่วน Hero] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 37 [ส่วน Hero] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 38 [ส่วน Hero] .hero-image style
+ 39 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 40 [ส่วน Main และจุดเด่น (Features)] .container.features padding
+ 41 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 42 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 43 [ส่วน Main และจุดเด่น (Features)] .feature-grid grid
+ 44 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 45 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 46 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 47 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 48 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 49 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 50 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 51 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 52 [ส่วน Main และจุดเด่น (Features)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 53 [ส่วน Main และจุดเด่น (Features)] .feature-card style
+ 54 [ส่วนราคา (Pricing)] .container.pricing padding
+ 55 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 56 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 57 [ส่วนราคา (Pricing)] .pricing-grid grid
+ 58 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 59 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 60 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 61 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 62 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 63 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 64 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 65 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 66 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 67 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 68 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 69 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 70 [ส่วนราคา (Pricing)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 71 [ส่วนราคา (Pricing)] .pricing-card + .price style
+ 72 [ส่วนคำถามที่พบบ่อย (FAQ)] .container.faq padding
+ 73 [ส่วนคำถามที่พบบ่อย (FAQ)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 74 [ส่วนคำถามที่พบบ่อย (FAQ)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 75 [ส่วนคำถามที่พบบ่อย (FAQ)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 76 [ส่วนคำถามที่พบบ่อย (FAQ)] summary + class faq-question (note); text from layer row
+ 77 [ส่วนคำถามที่พบบ่อย (FAQ)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 78 [ส่วนคำถามที่พบบ่อย (FAQ)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 79 [ส่วนคำถามที่พบบ่อย (FAQ)] summary + class faq-question (note); text from layer row
+ 80 [ส่วนคำถามที่พบบ่อย (FAQ)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 81 [ส่วนคำถามที่พบบ่อย (FAQ)] .faq-item / .faq-question style + focus state
+ 82 [ฟอร์มติดต่อ (ไม่มี backend)] .container.contact padding
+ 83 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 84 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 85 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 86 [ฟอร์มติดต่อ (ไม่มี backend)] form action + method
+ 87 [ฟอร์มติดต่อ (ไม่มี backend)] .lead-form style
+ 88 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 89 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 90 [ฟอร์มติดต่อ (ไม่มี backend)] input #lead-name autocomplete (type/name/required from layer row)
+ 91 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 92 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 93 [ฟอร์มติดต่อ (ไม่มี backend)] input #lead-email autocomplete (type/name/required from layer row)
+ 94 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 95 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 96 [ฟอร์มติดต่อ (ไม่มี backend)] input #lead-phone autocomplete (type/name/required from layer row)
+ 97 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 98 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+ 99 [ฟอร์มติดต่อ (ไม่มี backend)] textarea rows (id/name/required from layer row)
+100 [ฟอร์มติดต่อ (ไม่มี backend)] layer-table row (element / text / link / id / attribute already placed from section 2)
+101 [ฟอร์มติดต่อ (ไม่มี backend)] .form-field style
+102 [ฟอร์มติดต่อ (ไม่มี backend)] All Form Labels
+103 [ฟอร์มติดต่อ (ไม่มี backend)] All Inputs / Text Area
+104 [ฟอร์มติดต่อ (ไม่มี backend)] input focus state
+105 [ฟอร์มติดต่อ (ไม่มี backend)] submit button style
+106 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+107 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+108 [ส่วนชวนลงมือ (CTA) และ Footer] .container.cta style
+109 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+110 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+111 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+112 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+113 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+114 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+115 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+116 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+117 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+118 [ส่วนชวนลงมือ (CTA) และ Footer] .secondary-cta style
+119 [ส่วนชวนลงมือ (CTA) และ Footer] .footer style
+120 [ส่วนชวนลงมือ (CTA) และ Footer] layer-table row (element / text / link / id / attribute already placed from section 2)
+121 [Responsive (breakpoint)] switch to @media (max-width: 991px)
+122 [Responsive (breakpoint)] @media (max-width: 991px) .hero
+123 [Responsive (breakpoint)] @media (max-width: 991px) .pricing-grid
+124 [Responsive (breakpoint)] switch to @media (max-width: 767px)
+125 [Responsive (breakpoint)] @media (max-width: 767px) .hero
+126 [Responsive (breakpoint)] @media (max-width: 767px) .feature-grid
+127 [Responsive (breakpoint)] check only (no style)
+128 [ตรวจการเข้าถึงและเผยแพร่] no page change (export / check step)
+129 [ตรวจการเข้าถึงและเผยแพร่] no page change (export / check step)
+130 [ตรวจการเข้าถึงและเผยแพร่] no page change (export / check step)
+131 [ทางเลือก: HTML/CSS ล้วนใน VS Code] file names
+132 [ทางเลือก: HTML/CSS ล้วนใน VS Code] no page change (export / check step)
+133 [ทางเลือก: HTML/CSS ล้วนใน VS Code] no page change (export / check step)
+134 [ทางเลือก: HTML/CSS ล้วนใน VS Code] no page change (export / check step)
