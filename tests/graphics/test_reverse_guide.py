@@ -36,7 +36,7 @@ TARGET = ROOT / "docs" / "reverse" / "graphics-v1a" / "figma.md"
 
 @pytest.fixture(autouse=True)
 def _no_system_fonts(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(fonts, "_font_dirs", lambda: [])
+    monkeypatch.setattr(fonts, "_font_dirs", list)
 
 
 def build_text() -> str:
