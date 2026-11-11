@@ -27,6 +27,7 @@ def test_job_writes_html_css_manifest_and_zero_model_calls(tmp_path: Path) -> No
     assert result.replayed is False
     assert result.model_calls == 0
     assert {artifact.media_type for artifact in result.artifacts} == {"text/html", "text/css"}
+    assert result.manifest_filename is not None
     assert (tmp_path / "out" / result.manifest_filename).exists()
 
 

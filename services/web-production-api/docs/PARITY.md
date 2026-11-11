@@ -1,5 +1,11 @@
 # Web V1A — feature parity with real site builders
 
+> **Superseded (2026-11-12).** The current matrix, which compares the tool with
+> Webflow, Framer and Carrd and adds the flow column, the reverse guide, and
+> recipe `landing-template-v4` (contrast QA, Thai line height, lead form), is
+> [docs/parity/web.md](../../../docs/parity/web.md). This file is kept as the
+> record of the v3 pass. Rows 14, 15 and 23 below are updated.
+
 Honest comparison of what `web-v1a` (deterministic landing-page engine,
 recipe `landing-template-v3`) does against Webflow, Framer, and WordPress.
 "Have" means the engine produces it deterministically today, with QA. "Partial"
@@ -27,8 +33,8 @@ builder.
 | 11 | Custom fonts / type scale | have | have | have | **missing** (system font stack only, fixed scale) | P2 |
 | 12 | Hero image (local, alt required) | have | have | have | **have** (hash-verified, bundle-local) | — |
 | 13 | Image gallery / multiple images | have | have | have | **missing** | P2 |
-| 14 | Testimonials section | have | have | via blocks | **missing** — needs verbatim-quote grounding so AI cannot invent testimonials | P1 |
-| 15 | Contact/lead form | have (Forms) | have | via plugin | **missing** (only a `mailto:` CTA; a form needs a backend) | P1 |
+| 14 | Testimonials section | have | have | via blocks | **missing** — needs a structured, verbatim quote source so AI cannot invent testimonials | P2 (re-scoped 2026-11-12) |
+| 15 | Contact/lead form | have (Forms) | have | via plugin | **have (v4)** — static POST form to a relative path; the host answers it (no backend) | — |
 | 16 | Multi-page site, navigation menu | have | have | have | **missing** (one page) | P2 |
 | 17 | CMS collections / blog | have | have | have (core) | **missing** | P3 |
 | 18 | Structured data (JSON-LD) | via embed | via embed | via plugin | **missing** (would need `<script type="application/ld+json">`, which QA currently bans) | P2 |
@@ -36,7 +42,7 @@ builder.
 | 20 | Interactions / animations | have | have | theme/plugin | **missing** (by design: no JS) | P3 |
 | 21 | Localization (multi-locale) | have | have | via plugin | **partial** (one `th` or `en` page per job) | P3 |
 | 22 | Hosting / publish / custom domain | have | have | have | **missing** (by design: no deploy endpoint) | P3 |
-| 23 | Accessibility audit | Audit panel | partial | plugin | **partial** (deterministic QA: doctype, landmarks, single H1, alt text, focus, safe links; no colour-contrast check) | P1 |
+| 23 | Accessibility audit | Audit panel | partial | plugin | **have (v4)** — deterministic QA incl. blocking WCAG AA colour contrast | — |
 | 24 | Replay-safe builds, hashed artifacts | n/a | n/a | n/a | **have** (manifest + `production-trace verify`) | — |
 | 25 | Per-job history, step trace, manual steps | version history only | version history only | revisions | **have** (`trace.json`, `history.jsonl`, `MANUAL-STEPS.md` for Webflow) | — |
 | 26 | AI-proposed page from a brief | AI site builder | AI | plugins | **have** (V1B adapter, grounded, shadow-gated; registry includes pricing + FAQ) | — |
@@ -63,13 +69,8 @@ fragment as `error_code`. It now returns `invalid_request`.
 
 ## Roadmap (prioritised, not implemented)
 
-- **P1 Testimonials** — section with a quote, a name, and a role. The adapter
-  must require each quote verbatim in the brief, or the engine must take it
-  from a structured source only.
-- **P1 Colour-contrast QA** — WCAG AA contrast between foreground/background,
-  white on primary, and button colours. Fully deterministic and cheap.
-- **P1 Lead form** — needs a submission target. Out of scope while V1A has no
-  backend. Until then, keep `mailto:`.
+- Testimonials (now P2), colour-contrast QA and the lead form (both done in v4): see
+  [docs/parity/web.md](../../../docs/parity/web.md).
 - **P2 og:image, canonical URL, sitemap/robots** — all need a configured site
   base URL in the request (`site_url`), validated as https on an allowlisted
   domain.

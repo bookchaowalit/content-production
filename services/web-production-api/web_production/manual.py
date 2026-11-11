@@ -18,14 +18,18 @@ from dataclasses import dataclass
 from production_trace import ManualGuide
 from web_ir import LinkSpec, PageIR
 
+from .qa import contrast_report
 from .render import (
     BREAKPOINTS,
     CONTAINER_MAX_PX,
-    FOCUS_RING,
     FONT_STACK,
+    FORM_FIELDS,
     OG_LOCALES,
     ON_PRIMARY,
+    form_labels,
+    heading_line_height,
     pricing_columns,
+    render_css,
     section_labels,
 )
 
@@ -122,7 +126,33 @@ def _elements(ir: PageIR, image_name: str | None) -> list[_Element]:
                 _Element(f"{item} ▸ summary", "Custom Element (summary)", "summary", entry.question),
                 _Element(f"{item} ▸ Paragraph", "Paragraph", "p", entry.answer),
             ]
-    cta = f"{main} ▸ Section.container.cta#signup"
+    if ir.contact_form is not None:
+        contact = f"{main} ▸ Section.container.contact#contact"
+        form = f"{contact} ▸ Form.lead-form"
+        field_labels = form_labels(ir.language)
+        items += [
+            _Element(contact, "Section", "section.contact.container#contact", note="aria-labelledby=contact-title"),
+            _Element(f"{contact} ▸ Heading 2#contact-title", "Heading (H2)", "h2#contact-title", labels["contact"]),
+            _Element(form, "Form Block ▸ Form", "form.lead-form", note=f"action={ir.contact_form.action} method=post"),
+        ]
+        for name in ir.contact_form.fields:
+            kind = FORM_FIELDS[name][0]
+            field = f"{form} ▸ Div.form-field[{name}]"
+            items += [
+                _Element(field, "Div Block", "div.form-field"),
+                _Element(f"{field} ▸ Label", "Form Label", f"label[for=lead-{name}]", field_labels[name]),
+                _Element(
+                    f"{field} ▸ {'Text Area' if kind == 'textarea' else 'Input'}#lead-{name}",
+                    "Text Area" if kind == "textarea" else "Input",
+                    f"textarea#lead-{name}" if kind == "textarea" else f"input#lead-{name}",
+                    note=f"name={name} type={kind} required",
+                ),
+            ]
+        items += [
+            _Element(f"{form} ▸ Div.form-field[submit]", "Div Block", "div.form-field"),
+            _Element(f"{form} ▸ Div.form-field[submit] ▸ Submit Button", "Submit Button", "button.button[type=submit]", ir.contact_form.submit_label),
+        ]
+    cta =f"{main} ▸ Section.container.cta#signup"
     items += [
         _Element(cta, "Section", "section.cta.container#signup", note="aria-labelledby=cta-title"),
         _Element(f"{cta} ▸ Heading 2#cta-title", "Heading (H2)", "h2#cta-title", labels["ready"]),
@@ -154,6 +184,75 @@ def _button_steps(guide: ManualGuide, link: LinkSpec, *, section: str, wrapper_c
     )
 
 
+def _form_steps(guide: ManualGuide, ir: PageIR, title: str) -> None:
+    """Static lead form: Webflow Form Block posting to the host's relative path (no Webflow form backend)."""
+
+    form = ir.contact_form
+    assert form is not None
+    theme = ir.theme
+    labels = form_labels(ir.language)
+    s = "ฟอร์มติดต่อ (ไม่มี backend)"
+    guide.step("ลาก Section มาใต้ส่วนก่อนหน้า ใส่ class `container` + combo `contact` และ ID", tool="Add panel ▸ Section; Settings ▸ ID", value="container contact; ID contact; padding 0 บน, 4rem ล่าง", section=s)
+    guide.step("ตั้ง attribute การเข้าถึง", tool="Settings panel ▸ Custom Attributes ▸ +", value="aria-labelledby = contact-title", section=s)
+    guide.step("ลาก Heading (H2) ตั้ง ID แล้วพิมพ์หัวข้อ", tool="Add panel ▸ Heading; Settings ▸ H2 / ID", value=f"ID contact-title; ข้อความ: {title}", section=s)
+    guide.step(
+        "ลาก Form Block มาใต้ H2 แล้วลบช่องตัวอย่างที่ Webflow ใส่มาให้ทั้งหมด (เหลือแต่ Form เปล่า)",
+        tool="Add panel (A) ▸ Forms ▸ Form Block",
+        value="ลบ Name/Email/Submit ตัวอย่าง",
+        section=s,
+    )
+    guide.step(
+        "ตั้งให้ฟอร์มส่งไปที่ path ของ host (ไม่ใช้ระบบฟอร์มของ Webflow)",
+        tool="Settings panel (D) ▸ Form settings ▸ Action / Method",
+        value=f"Action {form.action}; Method POST",
+        note="host ที่นำไฟล์ไปวางต้องรับ POST ที่ path นี้เอง; ห้ามใส่ URL เต็ม",
+        section=s,
+    )
+    guide.step("ใส่ class `lead-form` ให้ Form แล้วตั้งสไตล์", tool="Style panel ▸ .lead-form", value="Display Grid; 1 คอลัมน์; Gap 1rem; Max W 40rem", section=s)
+    for name in form.fields:
+        kind = FORM_FIELDS[name][0]
+        guide.step(f"ลาก Div Block เข้า Form ใส่ class `form-field` (ช่อง {name})", tool="Add panel ▸ Div Block", value="form-field", section=s)
+        guide.step(
+            "ลาก Form Label เข้า form-field แล้วพิมพ์ชื่อช่อง และตั้ง For ให้ชี้ไปที่ ID ของช่อง",
+            tool="Add panel ▸ Forms ▸ Label; Settings ▸ For",
+            value=f"{labels[name]}; For lead-{name}",
+            section=s,
+        )
+        if kind == "textarea":
+            guide.step("ลาก Text Area มาใต้ Label แล้วตั้งค่า", tool="Add panel ▸ Forms ▸ Text Area; Settings panel", value=f"ID lead-{name}; Name {name}; Required ✓; Rows 4", section=s)
+        else:
+            autocomplete = FORM_FIELDS[name][1]
+            guide.step(
+                "ลาก Input มาใต้ Label แล้วตั้งค่า",
+                tool="Add panel ▸ Forms ▸ Input; Settings panel",
+                value=f"ID lead-{name}; Name {name}; Type {kind}; Required ✓",
+                note=f"เพิ่ม Custom Attribute autocomplete = {autocomplete}",
+                section=s,
+            )
+    guide.step(
+        "ลาก Div Block เข้า Form (ท้ายสุด) ใส่ class `form-field` แล้วลาก Submit Button เข้าไปในนั้น พิมพ์ข้อความ ใส่ class `button`",
+        tool="Add panel ▸ Div Block; Add panel ▸ Forms ▸ Submit Button",
+        value=form.submit_label,
+        note="ต้องห่อด้วย Div ไม่เช่นนั้นปุ่มจะยืดเต็มความกว้างของ grid; Webflow เขียนปุ่มเป็น <input type=submit> เครื่องมือเขียน <button type=submit> หน้าตาเท่ากัน",
+        section=s,
+    )
+    guide.step("ตั้งสไตล์ `form-field`", tool="Style panel ▸ .form-field", value="Margin 0", section=s)
+    guide.step("ตั้งสไตล์ Label ในฟอร์ม", tool="Style panel ▸ All Form Labels (หรือ class form-label)", value="Display Block; Weight 700; Margin bottom 0.25rem", section=s)
+    guide.step(
+        "ตั้งสไตล์ Input และ Text Area (Webflow ใส่ความสูง 38px และฟอนต์ 14px มาให้ ต้องแก้ทับ)",
+        tool="Style panel ▸ All Inputs / Text Area",
+        value=f"Display Block; Width 100%; Height Auto; Margin 0; Padding 0.75rem; Border 1px solid foreground ({theme.foreground}); Radius 0.5rem; Background background ({theme.background}); Color foreground; Font inherit (16px, Height 1.6)",
+        section=s,
+    )
+    guide.step(
+        "ตั้งกรอบโฟกัสของ Input / Text Area",
+        tool="Style panel ▸ All Inputs ▸ States ▸ Focused (keyboard)",
+        value=f"Outline 0.2rem solid foreground ({theme.foreground}); Outline offset 0.2rem",
+        section=s,
+    )
+    guide.step("ตั้งสไตล์ปุ่มส่ง (ต่อจาก `.button`)", tool="Style panel ▸ .button (ใน Form)", value="Border 0; Font inherit; Weight 700; Cursor pointer", section=s)
+
+
 def build_webflow_guide(ir: PageIR, *, html_name: str, css_name: str, image_name: str | None = None) -> ManualGuide:
     """Translate a validated ``PageIR`` into a Webflow Navigator tree and click-level steps."""
 
@@ -174,7 +273,7 @@ def build_webflow_guide(ir: PageIR, *, html_name: str, css_name: str, image_name
             "จึงเทียบกันที่โครงสร้าง/ข้อความ/สไตล์ ไม่ใช่ทีละไบต์"
         ),
         estimated_minutes=float(
-            25 + 3 * len(ir.features) + 5 * len(ir.pricing) + 2 * len(ir.faq) + (5 if ir.hero_image else 0) + (2 if ir.secondary_cta else 0)
+            25 + 3 * len(ir.features) + 5 * len(ir.pricing) + 2 * len(ir.faq) + (8 + 2 * len(ir.contact_form.fields) if ir.contact_form else 0) + (5 if ir.hero_image else 0) + (2 if ir.secondary_cta else 0)
         ),
         setup=[
             "เข้า Webflow Dashboard ▸ `New site` ▸ `Blank site` แล้วเปิด Designer",
@@ -209,6 +308,31 @@ def build_webflow_guide(ir: PageIR, *, html_name: str, css_name: str, image_name
     guide.step("เลือก Body แล้วตั้งพื้นหลัง/สีตัวอักษร", tool="Navigator ▸ Body; Style panel ▸ Backgrounds ▸ Color / Typography ▸ Color", value="background / foreground (ตัวแปร)", section=s)
     guide.step("ตั้งฟอนต์และระยะบรรทัดของ Body", tool="Style panel ▸ Typography ▸ Font / Height", value=f"{FONT_STACK}; line-height 1.6", note="ถ้า dropdown ไม่มี system-ui ให้พิมพ์ค่า font-family ใน custom property หรือใช้ฟอนต์ระบบที่ใกล้ที่สุด", section=s)
     guide.step("ตั้ง margin ของ Body เป็น 0", tool="Style panel ▸ Spacing ▸ Margin", value="0", section=s)
+    guide.step(
+        "ตั้งขนาดตัวอักษรของ Body เป็น 16px (Webflow ตั้งค่าเริ่มต้นไว้ 14px)",
+        tool="Style panel ▸ Body (All Pages) ▸ Typography ▸ Size",
+        value="Size 16px",
+        section=s,
+    )
+    guide.step(
+        "ให้ทุก element นับ padding และ border รวมในความกว้าง (border-box)",
+        tool="Webflow ตั้งให้แล้วใน webflow.css; HTML/CSS ล้วน: `* { box-sizing: border-box; }`",
+        value="box-sizing border-box",
+        note="ถ้าไม่ตั้ง ช่องกรอกในฟอร์มและกล่อง CTA จะกว้างเกิน container",
+        section=s,
+    )
+    for selector, value in (
+        ("All H2 Headings", "Size 1.5em; Height 1.6; Weight 700; Margin 0.83em 0"),
+        ("All H3 Headings", "Size 1.17em; Height 1.6; Weight 700; Margin 1em 0"),
+        ("All Paragraphs", "Margin 1em 0"),
+        ("All Lists", "Margin 1em 0; Padding left 40px"),
+    ):
+        guide.step(
+            f"ตั้งค่าเริ่มต้นของ {selector} ให้เท่ากับเบราว์เซอร์ (Webflow ตั้งขนาด/ระยะของ tag ไว้ต่างจากเบราว์เซอร์)",
+            tool=f"Style panel ▸ Selector ▸ {selector}",
+            value=value,
+            section=s,
+        )
 
     s = "ส่วน Hero"
     guide.step("ลาก Div Block มาไว้บนสุดใน Body แล้วเปลี่ยน Tag เป็น Header", tool="Add panel (A) ▸ Layout ▸ Div Block; Settings panel (D) ▸ Tag", value="Header", section=s)
@@ -225,7 +349,8 @@ def build_webflow_guide(ir: PageIR, *, html_name: str, css_name: str, image_name
     guide.step(
         "ตั้งสไตล์ All H1 Headings (มี H1 เดียวในหน้า จึงเท่ากับ `.hero h1`)",
         tool="Style panel ▸ Selector ▸ All H1 Headings",
-        value="Max W 16ch; Font size clamp(2.25rem, 7vw, 5rem); Height 1.05; Margin 0.25rem 0 1rem",
+        value=f"Max W 16ch; Font size clamp(2.25rem, 7vw, 5rem); Height {heading_line_height(ir.language):g}; Margin 0.25rem 0 1rem",
+        note="ภาษาไทยใช้ Height 1.35 เพื่อไม่ให้สระบน/วรรณยุกต์ชนบรรทัดบน (อังกฤษ 1.05)" if ir.language == "th" else "",
         section=s,
     )
     guide.step("ลาก Paragraph มาใต้ H1 พิมพ์เนื้อหา แล้วใส่ class `hero-body`", tool="Add panel ▸ Typography ▸ Paragraph", value=ir.hero_body, note="สไตล์ hero-body: Max W 60ch; Font size 1.125rem (18px)", section=s)
@@ -240,7 +365,14 @@ def build_webflow_guide(ir: PageIR, *, html_name: str, css_name: str, image_name
     guide.step(
         "ตั้งกรอบโฟกัสคีย์บอร์ดของปุ่ม",
         tool="Style panel ▸ .button ▸ States ▸ Focused (keyboard)",
-        value=f"Outline 0.2rem solid {FOCUS_RING}; Outline offset 0.2rem",
+        value=f"Outline 0.2rem solid foreground ({theme.foreground}); Outline offset 0.2rem",
+        note="สีกรอบโฟกัสใช้สีที่ผ่านการตรวจ contrast แล้ว (WCAG 1.4.11 ≥ 3:1)",
+        section=s,
+    )
+    guide.step(
+        "ตั้งกรอบโฟกัสของปุ่มใน Hero เป็นสีขาว (พื้นหลัง primary)",
+        tool="Style panel ▸ .button.is-hero ▸ States ▸ Focused (keyboard)",
+        value=f"Outline color {ON_PRIMARY}",
         section=s,
     )
     if ir.hero_image is not None:
@@ -303,7 +435,10 @@ def build_webflow_guide(ir: PageIR, *, html_name: str, css_name: str, image_name
             guide.step(f"ลาก Custom Element ตั้ง Tag `details` ใส่ class `faq-item` (คำถามที่ {index})", tool="Add panel ▸ Advanced ▸ Custom Element; Settings ▸ Tag", value="details", section=s)
             guide.step(f"ลาก Custom Element Tag `summary` เข้า details แล้วพิมพ์คำถามที่ {index}", tool="Add panel ▸ Advanced ▸ Custom Element; Settings ▸ Tag", value=entry.question, note="ใส่ class `faq-question` แทน selector `.faq-item summary`", section=s)
             guide.step(f"ลาก Paragraph มาใต้ summary แล้วพิมพ์คำตอบที่ {index}", tool="Add panel ▸ Paragraph", value=entry.answer, section=s)
-        guide.step("ตั้งสไตล์ FAQ", tool="Style panel ▸ .faq-item / .faq-question", value=f"faq-item: Border bottom 1px solid {border}; Padding 1rem 0. faq-question: Cursor pointer; Weight 700; State Focused (keyboard): Outline 0.2rem solid {FOCUS_RING}, offset 0.2rem", section=s)
+        guide.step("ตั้งสไตล์ FAQ", tool="Style panel ▸ .faq-item / .faq-question", value=f"faq-item: Border bottom 1px solid {border}; Padding 1rem 0. faq-question: Cursor pointer; Weight 700; State Focused (keyboard): Outline 0.2rem solid foreground ({theme.foreground}), offset 0.2rem", section=s)
+
+    if ir.contact_form is not None:
+        _form_steps(guide, ir, labels["contact"])
 
     s = "ส่วนชวนลงมือ (CTA) และ Footer"
     guide.step("ลาก Section มาท้าย Main ใส่ class `container` + combo `cta` และ ID", tool="Add panel ▸ Section; Settings ▸ ID", value="container cta; ID signup", section=s)
@@ -345,10 +480,22 @@ def build_webflow_guide(ir: PageIR, *, html_name: str, css_name: str, image_name
     guide.step("คัดลอกค่าทุกบรรทัดของ CSS จากขั้นตอนด้านบน (หรือเปิด CSS ของเครื่องมือเทียบ) แล้วบันทึก", tool="File ▸ Save", value=css_name, section=s)
 
     image_check = [f"มีรูป `{image_name or ir.hero_image.filename}` พร้อม alt ไม่ว่าง และไม่มีรูปจาก URL ภายนอก"] if ir.hero_image is not None else ["ไม่มีรูปภาพ (IR ไม่มี hero_image)"]
+    css_text = render_css(ir)
+    form_check = (
+        [f"ฟอร์มส่งแบบ POST ไปที่ {ir.contact_form.action}; ทุกช่องมี Label ที่ For ตรงกับ ID และติ๊ก Required"]
+        if ir.contact_form is not None
+        else []
+    )
     guide.checks = [
         f"มี H1 เดียว ข้อความ: {ir.hero_heading}",
-        f"มี H2 ครบ {2 + bool(ir.pricing) + bool(ir.faq)} หัวข้อตามลำดับ: " + ", ".join(
-            [labels["features"], *([labels["pricing"]] if ir.pricing else []), *([labels["faq"]] if ir.faq else []), labels["ready"]]
+        f"มี H2 ครบ {2 + bool(ir.pricing) + bool(ir.faq) + bool(ir.contact_form)} หัวข้อตามลำดับ: " + ", ".join(
+            [
+                labels["features"],
+                *([labels["pricing"]] if ir.pricing else []),
+                *([labels["faq"]] if ir.faq else []),
+                *([labels["contact"]] if ir.contact_form else []),
+                labels["ready"],
+            ]
         ),
         f"การ์ดจุดเด่น {len(ir.features)} ใบ" + (f", แพ็กเกจราคา {len(ir.pricing)} ใบ" if ir.pricing else "") + (f", คำถาม FAQ {len(ir.faq)} ข้อ" if ir.faq else ""),
         "ทุกปุ่มมี href ตรงกับเครื่องมือ: " + ", ".join(sorted({ir.hero_cta.href, *([ir.secondary_cta.href] if ir.secondary_cta else [])})),
@@ -356,7 +503,9 @@ def build_webflow_guide(ir: PageIR, *, html_name: str, css_name: str, image_name
         f"html lang = {ir.language}; og:locale = {OG_LOCALES[ir.language]}; มี twitter:card = summary",
         *image_check,
         f"ที่ ≤{tablet}px hero padding 4rem" + (" และ pricing เป็น 1 คอลัมน์" if ir.pricing else "") + f"; ที่ ≤{mobile}px features เป็น 1 คอลัมน์และ hero padding 3rem",
-        "กด Tab ไล่ปุ่มแล้วเห็นกรอบโฟกัสสีเหลือง (#FBBF24) ทุกปุ่ม",
+        f"กด Tab ไล่ปุ่มแล้วเห็นกรอบโฟกัสทุกปุ่ม: สี foreground ({theme.foreground}) บนพื้นหน้า, สีขาวในส่วน Hero",
+        "contrast ตาม WCAG 2.2 AA (≥ 4.5:1): " + ", ".join(f"{row['pair']} {row['ratio']}:1" for row in contrast_report(css_text)),
+        *form_check,
         "ไม่มี <script>, ไม่มีลิงก์ http(s)/javascript:/data:, ไม่มี url()/@import ใน CSS (ตรงกับ QA ของเครื่องมือ)",
         "เปิดไฟล์ HTML ของเครื่องมือในเบราว์เซอร์คู่กัน แล้วเทียบข้อความทุกส่วนตามตารางข้อ 2",
     ]

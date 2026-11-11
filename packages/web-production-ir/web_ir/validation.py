@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
 from pydantic import ValidationError
 
-from .models import LinkSpec, PageIR, PageRequest, ValidationIssue
+from .models import ContactFormSpec, LinkSpec, PageIR, PageRequest, ValidationIssue
 
 
 def _issue(code: str, path: str, message: str) -> ValidationIssue:
@@ -28,6 +29,34 @@ def _check_href(link: LinkSpec, path: str) -> ValidationIssue | None:
     if not (href.startswith(("/", "#")) or lowered.startswith("mailto:")):
         return _issue("unsupported_href", f"{path}.href", "href must be a relative path, fragment, or mailto link")
     return None
+
+
+# The exact string that is rendered must match: browsers drop tab/CR/LF and edge spaces from URLs and treat
+# "\" like "/", so "/\t/evil.example" or "/\\evil.example" would post to another host if we normalised first.
+FORM_ACTION_PATTERN = re.compile(r"/[A-Za-z0-9._~\-/]*")
+_URL_IGNORED = re.compile(r"[\x00-\x20\x7f]")
+
+
+def form_action_allowed(action: str) -> bool:
+    """True only for a same-origin path: allowlisted characters, starts with one "/", never "//"."""
+
+    return FORM_ACTION_PATTERN.fullmatch(action) is not None and "//" not in action
+
+
+def _check_form(form: ContactFormSpec) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    action = form.action
+    collapsed = _URL_IGNORED.sub("", action).replace("\\", "/").lower()
+    if collapsed.startswith(("javascript:", "data:", "http:", "https:", "//")) or "//" in collapsed:
+        issues.append(_issue("unsafe_form_action", "contact_form.action", "form action must be a relative path the host answers"))
+    elif not form_action_allowed(action):
+        issues.append(_issue("unsupported_form_action", "contact_form.action", "form action must be a plain relative path such as /api/lead"))
+    if not {"email", "phone"} & set(form.fields):
+        issues.append(_issue("form_contact_field_required", "contact_form.fields", "a lead form needs an email or phone field"))
+    label = _check_text(form.submit_label, "contact_form.submit_label", "form_submit_label_required")
+    if label is not None:
+        issues.append(label)
+    return issues
 
 
 def validate_request(request: Mapping[str, Any] | PageRequest) -> list[ValidationIssue]:
@@ -80,6 +109,8 @@ def validate_request(request: Mapping[str, Any] | PageRequest) -> list[Validatio
             issue = _check_text(value, path, "faq_text_required")
             if issue is not None:
                 issues.append(issue)
+    if parsed.contact_form is not None:
+        issues.extend(_check_form(parsed.contact_form))
     return issues
 
 
@@ -102,6 +133,7 @@ def compile_page(request: Mapping[str, Any] | PageRequest) -> PageIR:
         features=parsed.features,
         pricing=parsed.pricing,
         faq=parsed.faq,
+        contact_form=parsed.contact_form,
         secondary_cta=parsed.secondary_cta,
         footer_text=parsed.footer_text,
         theme=parsed.theme,

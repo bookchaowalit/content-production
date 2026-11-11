@@ -2,6 +2,7 @@
 
 from .models import (
     ArtifactRef,
+    ContactFormSpec,
     FaqItem,
     FeatureSpec,
     HeroImageSpec,
@@ -12,10 +13,17 @@ from .models import (
     ThemeSpec,
     ValidationIssue,
 )
-from .validation import compile_page, validate_request
+from .validation import (
+    FORM_ACTION_PATTERN,
+    compile_page,
+    form_action_allowed,
+    validate_request,
+)
 
 __all__ = [
+    "FORM_ACTION_PATTERN",
     "ArtifactRef",
+    "ContactFormSpec",
     "FaqItem",
     "FeatureSpec",
     "HeroImageSpec",
@@ -26,5 +34,6 @@ __all__ = [
     "ThemeSpec",
     "ValidationIssue",
     "compile_page",
+    "form_action_allowed",
     "validate_request",
 ]

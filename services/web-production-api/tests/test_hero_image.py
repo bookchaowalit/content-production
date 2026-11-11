@@ -57,7 +57,10 @@ def test_qa_rejects_foreign_src_and_missing_alt() -> None:
         '<meta name="twitter:card" content="summary">'
     )
     base = f'<!doctype html><html><head>{head}</head><body><h1>t</h1><main></main><footer></footer>'
-    css = "@media (max-width: 991px) {} @media (max-width: 767px) {} :focus-visible {}"
+    css = (
+        ":root { --primary: #2563EB; --background: #FFFFFF; --foreground: #111827; } "
+        "@media (max-width: 991px) {} @media (max-width: 767px) {} :focus-visible {}"
+    )
     assert "external_asset_reference" in run_page_qa(base + '<img src="https://x/y.png" alt="a"></body></html>', css)
     assert "image_alt_missing" in run_page_qa(base + '<img src="a.png" alt=" "></body></html>', css, None,
                                               frozenset({"a.png"}))

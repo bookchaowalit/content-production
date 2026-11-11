@@ -80,3 +80,54 @@ def test_unsafe_href_is_rejected_for_secondary_cta() -> None:
     issues = validate_request(payload)
 
     assert any(issue.code == "unsafe_href" for issue in issues)
+
+
+FORM = {"action": "/api/lead", "fields": ["name", "email"], "submit_label": "ส่ง"}
+
+
+def test_contact_form_compiles_into_the_ir() -> None:
+    ir = compile_page(_page(contact_form=FORM))
+    assert ir.contact_form is not None and ir.contact_form.fields == ["name", "email"]
+    assert compile_page(_page()).contact_form is None
+
+
+@pytest.mark.parametrize(
+    ("form", "code"),
+    [
+        ({**FORM, "action": "https://evil.example/x"}, "unsafe_form_action"),
+        ({**FORM, "action": "javascript:alert(1)"}, "unsafe_form_action"),
+        ({**FORM, "action": "/api/lead?x=1"}, "unsupported_form_action"),
+        ({**FORM, "action": "api/lead"}, "unsupported_form_action"),
+        ({**FORM, "fields": ["name", "message"]}, "form_contact_field_required"),
+        ({**FORM, "submit_label": "   "}, "form_submit_label_required"),
+        ({**FORM, "fields": ["email", "email"]}, "invalid_request"),
+        ({**FORM, "fields": []}, "invalid_request"),
+    ],
+)
+def test_contact_form_rejections(form: dict[str, object], code: str) -> None:
+    assert code in [issue.code for issue in validate_request(_page(contact_form=form))]
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "/\t/evil.example/collect",
+        "/\n/evil.example/collect",
+        "/\r/evil.example/collect",
+        " /contact",
+        "/contact ",
+        "/\\evil.example",
+        "//x",
+        "/a//b",
+        "/\x00x",
+        "/café",
+    ],
+)
+def test_form_action_must_be_an_exact_allowlisted_path(action: str) -> None:
+    codes = [issue.code for issue in validate_request(_page(contact_form={**FORM, "action": action}))]
+    assert {"unsafe_form_action", "unsupported_form_action"} & set(codes), repr(action)
+
+
+def test_plain_relative_form_action_still_passes() -> None:
+    assert validate_request(_page(contact_form={**FORM, "action": "/contact"})) == []
+    assert validate_request(_page(contact_form={**FORM, "action": "/api/v1/lead-form_2.php"})) == []

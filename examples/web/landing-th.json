@@ -1,0 +1,83 @@
+{
+  "page": {
+    "page_id": "example-bakery-th",
+    "language": "th",
+    "slug": "bakery-landing",
+    "title": "ร้านขนมปังบ้านสวน",
+    "description": "ขนมปังซาวร์โดว์อบสดทุกเช้า ส่งถึงบ้านในเขตเมือง",
+    "hero_heading": "ขนมปังอบใหม่ ส่งถึงบ้านก่อนเจ็ดโมงเช้า",
+    "hero_body": "เราหมักแป้งช้า 24 ชั่วโมง อบทุกเช้า แล้วส่งถึงหน้าบ้านก่อนคุณตื่น",
+    "hero_cta": {
+      "label": "สั่งขนมปัง",
+      "href": "#contact"
+    },
+    "features": [
+      {
+        "title": "หมักช้า 24 ชั่วโมง",
+        "body": "ย่อยง่าย กลิ่นหอม เปลือกกรอบ"
+      },
+      {
+        "title": "ส่งก่อนเจ็ดโมง",
+        "body": "รถส่งออกจากร้านทุกวันตอนตีห้า"
+      },
+      {
+        "title": "แป้งไทย",
+        "body": "ใช้แป้งจากโรงสีในภาคเหนือ"
+      }
+    ],
+    "pricing": [
+      {
+        "name": "รายสัปดาห์",
+        "price": "290 บาท",
+        "description": "ขนมปัง 1 ก้อนต่อสัปดาห์",
+        "features": [
+          "ส่งฟรีในเขตเมือง",
+          "หยุดได้ทุกเมื่อ"
+        ]
+      },
+      {
+        "name": "ครอบครัว",
+        "price": "990 บาท",
+        "features": [
+          "4 ก้อนต่อสัปดาห์",
+          "เลือกชนิดได้"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "question": "ส่งวันไหนบ้าง",
+        "answer": "ส่งทุกวันจันทร์ถึงเสาร์ ก่อนเจ็ดโมงเช้า"
+      },
+      {
+        "question": "เก็บได้กี่วัน",
+        "answer": "เก็บในอุณหภูมิห้องได้ 3 วัน"
+      }
+    ],
+    "contact_form": {
+      "action": "/api/lead",
+      "fields": [
+        "name",
+        "email",
+        "phone",
+        "message"
+      ],
+      "submit_label": "ส่งข้อมูล"
+    },
+    "secondary_cta": {
+      "label": "ส่งอีเมลถึงเรา",
+      "href": "mailto:hello@bakery.example"
+    },
+    "footer_text": "ร้านขนมปังบ้านสวน (ตัวอย่างสังเคราะห์)",
+    "theme": {
+      "primary": "#1D4ED8",
+      "background": "#FFFFFF",
+      "foreground": "#111827"
+    },
+    "hero_image": {
+      "filename": "hero.png",
+      "content_hash": "ac9d5facf510c97078ea18c9429b45118aa6796e8adcbfa7ece86f85ea43ed5c",
+      "alt": "ขนมปังซาวร์โดว์บนโต๊ะไม้ยามเช้า"
+    }
+  }
+}

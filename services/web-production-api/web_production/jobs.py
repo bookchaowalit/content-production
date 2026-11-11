@@ -25,9 +25,10 @@ from .telemetry import JobTelemetry
 
 CONTRACT_VERSION = "web.v1a"
 # v3: OpenGraph/Twitter meta, optional pricing + FAQ sections, Webflow-aligned breakpoints (991/767px).
-RECIPE_VERSION = "landing-template-v3"
+# v4: WCAG AA contrast QA (focus rings use checked colours), Thai heading line height, static lead form.
+RECIPE_VERSION = "landing-template-v4"
 TOOL_ID = "web-v1a"
-ENGINE_VERSION = "web-render.v3"
+ENGINE_VERSION = "web-render.v4"
 JOBS_DIRNAME = "jobs"
 _CODE = re.compile(r"[a-z][a-z0-9_,]{0,119}")
 
@@ -236,7 +237,7 @@ def _trace_end(trace: TraceRecorder, job_dir: Path, root: Path, status: str, cod
 
 
 def _section_names(ir: PageIR) -> list[str]:
-    return ["hero", "features", *(["pricing"] if ir.pricing else []), *(["faq"] if ir.faq else []), "cta", "footer"]
+    return ["hero", "features", *(["pricing"] if ir.pricing else []), *(["faq"] if ir.faq else []), *(["contact"] if ir.contact_form else []), "cta", "footer"]
 
 
 def run_page_job(

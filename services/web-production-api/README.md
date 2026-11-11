@@ -2,17 +2,26 @@
 
 Web V1A turns a structured page request into a fixed, reviewable landing page
 with local HTML and CSS artifacts. The sections are hero, features, optional
-pricing (1–3 plans), optional FAQ (up to 8 `<details>` items), call to action,
-and footer. The engine:
+pricing (1–3 plans), optional FAQ (up to 8 `<details>` items), an optional
+static lead form (`contact_form`), call to action, and footer. The engine:
 
-- escapes user text and validates relative links;
+- escapes user text and validates relative links and the form action;
 - writes SEO and OpenGraph/Twitter meta;
 - emits responsive CSS with Webflow-aligned breakpoints (Tablet ≤991px,
-  Mobile ≤767px) and a keyboard-visible focus state;
+  Mobile ≤767px), a keyboard-visible focus state, and a Thai-safe heading
+  line height (1.35 on `th` pages);
+- rejects a theme that fails WCAG 2.2 AA text contrast (`contrast_<pair>_insufficient`);
 - records replay-safe manifest hashes.
 
-See [docs/PARITY.md](docs/PARITY.md) for how this compares with Webflow,
-Framer, and WordPress, and for the roadmap.
+The lead form is markup only: it posts to a relative path (for example
+`/api/lead`) with visible labels and `required` fields. The engine has no
+backend, so whoever hosts the files must answer that path.
+
+See [docs/parity/web.md](../../docs/parity/web.md) for how this compares with
+Webflow, Framer, and Carrd, the flow labels (`web_production/flow.py`), and the
+roadmap. The committed hand-build guide is
+[docs/reverse/web-v1a/webflow.md](../../docs/reverse/web-v1a/webflow.md),
+checked by `tests/test_reverse_guide.py` (rewrite with `REVERSE_GUIDES_UPDATE=1`).
 
 The standard path is deterministic and makes zero model calls. It accepts no
 raw HTML or JavaScript, fetches no external assets, and has no deploy or
@@ -148,6 +157,6 @@ The CLI needs `packages/production-trace` and `packages/web-production-ir` on
 `PYTHONPATH`, as production-hub and production-pipelines set them.
 `brief_adapter_kit` is imported only by the AI subcommands.
 
-Recipe `landing-template-v3` changes the input hash. A replay of a key built
-under v2 returns `idempotency_key_reused_with_different_input`, so use a new
-key to rebuild.
+Recipe `landing-template-v4` (contrast QA, Thai line height, lead form)
+changes the input hash. A replay of a key built under v3 returns
+`idempotency_key_reused_with_different_input`, so use a new key to rebuild.
