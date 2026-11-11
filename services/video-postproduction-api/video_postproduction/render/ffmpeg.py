@@ -71,7 +71,8 @@ def build_ffmpeg_argv(
             and (first.visual.reframe.mode != "center" or first.visual.reframe.aspect_ratio != "9:16")
         ):
             raise RenderCapabilityError("only center 9:16 reframe is supported in V1B")
-        filters = ["crop=ih*9/16:ih:(iw-ih*9/16)/2:0", f"scale={width}:{height}"]
+        # setsar=1: the even-width crop scaled to the output would otherwise keep a 404:405-style SAR.
+        filters = ["crop=ih*9/16:ih:(iw-ih*9/16)/2:0", f"scale={width}:{height}", "setsar=1"]
     elif first.visual.reframe is not None:
         raise RenderCapabilityError("source render profile cannot include a reframe instruction")
     else:

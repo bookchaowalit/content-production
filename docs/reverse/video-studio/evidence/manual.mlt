@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mlt LC_NUMERIC="C">
+  <profile width="1080" height="1920" frame_rate_num="30" frame_rate_den="1" progressive="1"
+           sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="1080" display_aspect_den="1920" colorspace="709"/>
+  <producer id="source"><property name="resource">studio-demo.mp4</property></producer>
+  <playlist id="V1">
+    <entry producer="source" in="8" out="100"/>
+    <entry producer="source" in="158" out="214"/>
+    <entry producer="source" in="266" out="349"/>
+  </playlist>
+  <tractor id="timeline">
+    <track producer="V1"/>
+    <filter><property name="mlt_service">affine</property><property name="transition.rect">-1166.400 -2073.600 3412.800 6067.200 1</property>
+      <property name="transition.distort">0</property><property name="transition.fill">1</property></filter>
+    <filter><property name="mlt_service">subtitle_feed</property><property name="resource">captions.srt</property>
+      <property name="feed">0</property></filter>
+    <filter><property name="mlt_service">subtitle</property><property name="feed">0</property>
+      <property name="family">Noto Sans Thai</property><property name="size">52</property>
+      <property name="fgcolour">#ffffffff</property><property name="olcolour">#ff000000</property>
+      <property name="outline">4</property><property name="halign">center</property><property name="valign">bottom</property>
+      <property name="geometry">80 0 920 1800 1</property></filter>
+    <filter><property name="mlt_service">dynamic_loudness</property><property name="target_loudness">-14.0</property></filter>
+  </tractor>
+</mlt>

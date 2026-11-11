@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "project_id": "00000000-0000-0000-0000-00000000c0de",
+  "source_assets": [
+    {"asset_id": "00000000-0000-0000-0000-00000000a55e", "storage_key": "studio-demo.mp4", "duration": 12.0}
+  ],
+  "timeline": [
+    {
+      "id": "segment_0001",
+      "source": {"asset_id": "00000000-0000-0000-0000-00000000a55e", "start": 0.0, "end": 12.0},
+      "visual": {"kind": "a_roll", "reframe": {"mode": "center", "aspect_ratio": "9:16"}, "asset_refs": []},
+      "captions": {"enabled": true, "source": "transcript", "format": "ass", "preset": "minimal"},
+      "audio": {"operations": [{"type": "loudness_normalize", "integrated_lufs": -14, "true_peak_dbtp": -1, "loudness_range_lu": 11}]},
+      "color": {"operations": []},
+      "provenance": {"reason": "whole source"}
+    }
+  ],
+  "assets": [],
+  "output": {"width": 1080, "height": 1920, "fps": 30, "format": "mp4", "render_profile": "vertical_centered"},
+  "capabilities": {"required": ["cut", "captions", "center_reframe"]},
+  "silence_cut": {"min_gap_s": 0.6, "padding_s": 0.15, "remove_fillers": true}
+}

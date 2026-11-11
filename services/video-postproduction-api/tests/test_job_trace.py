@@ -219,7 +219,7 @@ def test_successful_render_writes_trace_manual_history_and_artifacts(studio):
     options = render_step["params"]["options"]
     assert options["c:v"] == "libx264" and options["pix_fmt"] == "yuv420p" and options["c:a"] == "aac"
     assert options["ss"] == "12.500" and options["t"] == "29.750"
-    assert options["vf"] == ["crop=ih*9/16:ih:(iw-ih*9/16)/2:0", "scale=1080:1920", "subtitles=<captions>"]
+    assert options["vf"] == ["crop=ih*9/16:ih:(iw-ih*9/16)/2:0", "scale=1080:1920", "setsar=1", "subtitles=<captions>"]
     assert str(storage.root) not in json.dumps(trace)
 
     files = {artifact["file"]: artifact for artifact in trace["artifacts"]}

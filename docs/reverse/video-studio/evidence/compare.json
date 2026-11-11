@@ -1,0 +1,71 @@
+{
+  "frames": {
+    "engine": 234,
+    "manual": 234
+  },
+  "durations": {
+    "engine": "00:00:07.80",
+    "manual": "00:00:07.81"
+  },
+  "sar": {
+    "engine": "1:1",
+    "manual": "1:1"
+  },
+  "picture_psnr_y": {
+    "min": 33.94,
+    "mean": 34.75,
+    "frames": 234
+  },
+  "picture_psnr_y_offset_-1": 24.76,
+  "aligned_beats_offset_-1_every_frame": true,
+  "picture_psnr_y_offset_+1": 24.69,
+  "aligned_beats_offset_+1_every_frame": true,
+  "clip_edges_psnr_y": {
+    "0-92": [
+      34.9,
+      33.94
+    ],
+    "93-149": [
+      35.22,
+      34.11
+    ],
+    "150-233": [
+      34.89,
+      34.39
+    ]
+  },
+  "caption_on_frames": {
+    "engine": [
+      [
+        4,
+        87
+      ],
+      [
+        93,
+        144
+      ],
+      [
+        154,
+        228
+      ]
+    ],
+    "manual": [
+      [
+        4,
+        87
+      ],
+      [
+        93,
+        144
+      ],
+      [
+        154,
+        228
+      ]
+    ]
+  },
+  "integrated_lufs": {
+    "engine": -14.0,
+    "manual": -14.0
+  }
+}

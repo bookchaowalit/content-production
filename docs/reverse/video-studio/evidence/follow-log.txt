@@ -1,0 +1,16 @@
+Project: 1080x1920 @ 30 fps, Scale entire image to fit
+Append studio-demo.mp4 [0, 360)
+Razor at 00:00:00:08 (frame 8)
+Razor at 00:00:03:11 (frame 101)
+Razor at 00:00:05:08 (frame 158)
+Razor at 00:00:07:05 (frame 215)
+Razor at 00:00:08:26 (frame 266)
+Razor at 00:00:11:20 (frame 350)
+Ripple Delete [350, 360)
+Ripple Delete [215, 266)
+Ripple Delete [101, 158)
+Ripple Delete [0, 8)
+Clips on V1: [[8, 101], [158, 215], [266, 350]] (234 frames)
+Zoom 3.16 -> affine rect -1166.400 -2073.600 3412.800 6067.200 1
+Subtitles captions.srt: Noto Sans Thai 52px, stroke 4, bottom 120px, sides 80px
+Deliver: H.264 MP4 1080x1920 30 fps, AAC 192k 48000 Hz, loudness -14.0 LUFS, burn in

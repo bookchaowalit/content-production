@@ -1,0 +1,25 @@
+{
+  "schema_version": "transcript.v1",
+  "provider": "deterministic",
+  "model": "synthetic-fixture",
+  "language": "th",
+  "duration": 12.0,
+  "segments": [
+    {"id": "s1", "start": 0.4, "end": 3.2, "text": "สวัสดีครับ วันนี้เราจะมาดูวิธีตัดต่อคลิปสั้น", "words": []},
+    {
+      "id": "s2",
+      "start": 4.6,
+      "end": 7.0,
+      "text": "เอ่อ เริ่มจากตัดช่วงเงียบ",
+      "words": [
+        {"text": "เอ่อ", "start": 4.6, "end": 5.3},
+        {"text": "เริ่ม", "start": 5.4, "end": 5.8},
+        {"text": "จาก", "start": 5.8, "end": 6.1},
+        {"text": "ตัด", "start": 6.1, "end": 6.4},
+        {"text": "ช่วง", "start": 6.4, "end": 6.7},
+        {"text": "เงียบ", "start": 6.7, "end": 7.0}
+      ]
+    },
+    {"id": "s3", "start": 9.0, "end": 11.5, "text": "แล้วส่งออกเป็นแนวตั้ง 9:16", "words": []}
+  ]
+}

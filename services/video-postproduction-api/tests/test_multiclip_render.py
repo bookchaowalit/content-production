@@ -66,7 +66,7 @@ def test_multi_clip_argv_trims_each_clip_on_plan_frames_then_concats(studio):
             f"[0:a:0]atrim=start={start:.6f}:end={end:.6f},asetpts=PTS-STARTPTS[a{index}]" in graph
         )
     assert "[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[vcat][acat]" in graph
-    assert "[vcat]crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920,subtitles=" in graph
+    assert "[vcat]crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920,setsar=1,subtitles=" in graph
     assert [argv[i + 1] for i, item in enumerate(argv) if item == "-map"] == ["[vout]", "[aout]"]
     assert "-ss" not in argv and "-vf" not in argv
     # 30.01 s is frame 900.3 → the plan (and the render) start clip b at frame 900.
@@ -233,3 +233,12 @@ def test_real_ffmpeg_multi_clip_render_has_plan_frame_count(studio, tmp_path):
         [ffmpeg, "-hide_banner", "-i", str(output)], check=False, capture_output=True, text=True
     ).stderr
     assert re.search(r"Audio: aac", info)
+
+
+def test_vertical_crop_output_has_square_pixels(studio):
+    """Found by following the reverse guide in MLT: crop 404 px → scale 1080 left SAR 404:405."""
+
+    edl, plan = _plan(studio, [_segment(studio["asset"].id, 1.0, 5.0)])
+    argv = build_ffmpeg_argv(edl, input_path=IN, output_path=OUT, plan=plan)
+    assert argv[argv.index("-vf") + 1].split(",")[:3] == ["crop=ih*9/16:ih:(iw-ih*9/16)/2:0", "scale=1080:1920", "setsar=1"]
+    assert plan.reframe.filters == ("crop=ih*9/16:ih:(iw-ih*9/16)/2:0", "scale=1080:1920", "setsar=1")

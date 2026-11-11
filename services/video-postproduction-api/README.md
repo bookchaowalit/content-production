@@ -115,14 +115,42 @@ If the source shows offline, use `Media Pool ▸ Relink Selected Clips…`.
 Source timecode assumes the file starts at `00:00:00:00`, which is true for
 most phone and screen recordings.
 
-The export route works for timelines the engine cannot render yet (several
-confirmed highlight clips). When a render fails, the job directory still has
-the timelines and the manual guide.
+The export route writes the same bundle without rendering. When a render
+fails, the job directory still has the timelines and the manual guide.
 
-**Not verified:** these files have not yet been opened in a real Resolve or
-Premiere install. See [`docs/PARITY.md`](docs/PARITY.md) for the capability
-comparison with DaVinci Resolve, Premiere Pro, and CapCut, and for the
-prioritized roadmap.
+Multi-clip timelines (several ranges of one source, any order: confirmed
+highlight clips, a silence cut) render in one FFmpeg run: each clip is trimmed
+on the plan's frames (`trim=start_frame/end_frame`, `atrim` at the same frame
+boundaries) and concatenated before the reframe, caption and loudness chain, so
+the render cuts on exactly the frames the guide and the timelines name.
+
+**Verification:** the committed reverse guide
+[`docs/reverse/video-studio/davinci-resolve.md`](../../docs/reverse/video-studio/davinci-resolve.md)
+was followed step by step in MLT 7.42 (Shotcut/Kdenlive engine) and the three
+timelines were opened with OpenTimelineIO 0.18.1: frame-exact cuts, captions and
+loudness ([VERIFY.md](../../docs/reverse/video-studio/VERIFY.md)). Resolve and
+Premiere themselves are not installed here; a Resolve smoke test is an owner
+item. Capability comparison and roadmap: [`docs/parity/video.md`](../../docs/parity/video.md).
+
+## Silence and filler cut
+
+`POST /api/v1/projects/{id}/edl/silence-cut` (write access) keeps only the
+spoken ranges of the latest EDL and saves them as the next EDL version
+(`status=draft`); render it with the normal render route.
+
+```json
+{"min_gap_s": 0.6, "padding_s": 0.15, "remove_fillers": true}
+```
+
+Speech comes from word timings when the transcript has them, otherwise from the
+segments. Filler words (`um`, `uh`, `erm`, `hmm`, `เอ่อ`, `เอิ่ม`, `อ่า`, `อืม`, `อ้า`, …)
+are not speech when `remove_fillers` is true. Each interval is padded, gaps
+shorter than `min_gap_s` are kept, and every kept interval becomes a segment
+with the base segment's settings and provenance `reason=silence_cut`. Bounds:
+`0.1 ≤ min_gap_s ≤ 5`, `0 ≤ padding_s ≤ 1` (422 `silence_cut_invalid`); no speech
+in range answers 422 `silence_cut_no_speech`; no transcript answers 409
+`transcript_not_ready`. No model is called. Captions keep whole transcript
+segments, so a cut filler can still appear in the caption text.
 
 EDL audio operation (optional, renderer-supported):
 
