@@ -1,0 +1,137 @@
+[
+ {
+  "step": 1,
+  "tool": "Home ▸ Styles ▸ Normal ▸ Modify… ▸ Format ▸ Font…",
+  "value": "Sarabun"
+ },
+ {
+  "step": 2,
+  "tool": "Layout ▸ Margins ▸ Custom Margins…",
+  "value": "0.7\""
+ },
+ {
+  "step": 3,
+  "tool": "Layout ▸ Margins ▸ Custom Margins…",
+  "value": "1.25\""
+ },
+ {
+  "step": 4,
+  "tool": "Layout ▸ Size",
+  "value": "A4"
+ },
+ {
+  "step": 5,
+  "tool": "Insert ▸ Footer ▸ Edit Footer",
+  "value": ""
+ },
+ {
+  "step": 6,
+  "tool": "Home ▸ Paragraph ▸ Align Right",
+  "value": "example-invoice-wht-002 · หน้า "
+ },
+ {
+  "step": 7,
+  "tool": "Insert ▸ Page Number ▸ Current Position ▸ Plain Number",
+  "value": ""
+ },
+ {
+  "step": 8,
+  "tool": "Header & Footer ▸ Close Header and Footer",
+  "value": ""
+ },
+ {
+  "step": 9,
+  "tool": "Home ▸ Styles ▸ Title",
+  "value": "ใบแจ้งหนี้"
+ },
+ {
+  "step": 10,
+  "tool": "Home ▸ Styles ▸ Normal",
+  "value": "ลูกค้า: บริษัท ตัวอย่าง จำกัด"
+ },
+ {
+  "step": 11,
+  "tool": "Home ▸ Styles ▸ Normal",
+  "value": "วันที่ออกเอกสาร: 2026-11-12"
+ },
+ {
+  "step": 12,
+  "tool": "Home ▸ Styles ▸ Heading 1",
+  "value": "Items"
+ },
+ {
+  "step": 13,
+  "tool": "Home ▸ Styles ▸ Normal",
+  "value": "กรุณาชำระเงินภายในสามสิบวันนับจากวันที่ออกเอกสารโดยโอนเข้าบัญชีของบริษัทและส่งหนังสือรับรองการหักภาษีณที่จ่ายมาพร้อมกัน"
+ },
+ {
+  "step": 14,
+  "tool": "Insert ▸ Table ▸ Insert Table…",
+  "value": "Number of columns = 5, Number of rows = 3"
+ },
+ {
+  "step": 15,
+  "tool": "Table Design ▸ Table Styles ▸ Table Grid",
+  "value": ""
+ },
+ {
+  "step": 16,
+  "tool": "",
+  "value": "Description | Qty | Unit price | Tax % | Line total"
+ },
+ {
+  "step": 17,
+  "tool": "",
+  "value": "บริการวางระบบ | 1 | 15000.00 | 7 | 15000.00"
+ },
+ {
+  "step": 18,
+  "tool": "",
+  "value": "ค่าบำรุงรักษารายเดือน | 3 | 2500.00 | 7 | 7500.00"
+ },
+ {
+  "step": 19,
+  "tool": "Home ▸ Styles ▸ Heading 1",
+  "value": "Totals"
+ },
+ {
+  "step": 20,
+  "tool": "",
+  "value": "subtotal: 22500.00 THB"
+ },
+ {
+  "step": 21,
+  "tool": "",
+  "value": "tax_total: 1575.00 THB"
+ },
+ {
+  "step": 22,
+  "tool": "",
+  "value": "grand_total: 24075.00 THB"
+ },
+ {
+  "step": 23,
+  "tool": "",
+  "value": "withholding_tax: 675.00 THB"
+ },
+ {
+  "step": 24,
+  "tool": "",
+  "value": "net_payable: 23400.00 THB"
+ },
+ {
+  "step": 25,
+  "tool": "",
+  "value": "grand_total (ตัวอักษร): (สองหมื่นสี่พันเจ็ดสิบห้าบาทถ้วน)"
+ },
+ {
+  "step": 26,
+  "tool": "File ▸ Save As",
+  "value": "document.docx"
+ },
+ {
+  "step": 27,
+  "tool": "File ▸ Export ▸ Create PDF/XPS",
+  "value": "document.pdf"
+ }
+]

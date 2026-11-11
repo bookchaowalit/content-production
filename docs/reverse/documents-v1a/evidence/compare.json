@@ -1,0 +1,66 @@
+{
+ "docx_body_equal": true,
+ "docx_body_items": 13,
+ "docx_body_diff": [],
+ "setup_engine": {
+  "page_mm": [
+   210,
+   297
+  ],
+  "top_bottom_in": [
+   0.7,
+   0.7
+  ],
+  "left_right_in": [
+   1.25,
+   1.25
+  ],
+  "footer_text": "example-invoice-wht-002 · หน้า ",
+  "footer_has_page_field": true,
+  "footer_align": "RIGHT (2)"
+ },
+ "setup_manual": {
+  "page_mm": [
+   210,
+   297
+  ],
+  "top_bottom_in": [
+   0.7,
+   0.92
+  ],
+  "left_right_in": [
+   1.25,
+   1.25
+  ],
+  "footer_text": "example-invoice-wht-002 · หน้า 1",
+  "footer_has_page_field": true,
+  "footer_align": "RIGHT (2)"
+ },
+ "setup_equal": false,
+ "table_cells_equal": true,
+ "page_count": {
+  "engine_pdf": 1,
+  "manual_pdf": 1,
+  "lo_engine_docx_pdf": 1
+ },
+ "pdf_text_manual_equals_lo_engine": true,
+ "pdf_text_manual_equals_engine": false,
+ "pdf_text_chars": {
+  "engine_pdf": 462,
+  "manual_pdf": 465,
+  "lo_engine_docx_pdf": 465
+ },
+ "critical_lines_in_manual_pdf": {
+  "grand_total: 24075.00 THB": true,
+  "net_payable: 23400.00 THB": true,
+  "subtotal: 22500.00 THB": true,
+  "tax_total: 1575.00 THB": true,
+  "withholding_tax: 675.00 THB": true,
+  "grand_total (ตัวอักษร): (สองหมื่นสี่พันเจ็ดสิบห้าบาทถ้วน)": true
+ },
+ "pdf_text_samples": {
+  "engine_pdf": "ใบแจ้งหนี้ลูกค้า:บริษัทตัวอย่างจำกัดวันที่ออกเอกสาร:2026-11-12Itemsกรุณาชำระเงินภายในสามสิบวันนับจากวันที่ออกเอกสารโดยโอนเข้าบัญชีของบริษัทและส่งหนังสือรับรองการหักภาษีณที่จ่ายมาพร้อมกันDescriptionQtyUnitpriceTax%Linetotalบริการวางระบบ115000.00715000.00ค่าบำรุงรักษารายเดือน32500.0077500.00Totalssubtotal:22500.00THBtax_total:1575.00THBgrand_total:24075.00THBwithholding_tax:675.00THBnet_payable:2340",
+  "manual_pdf": "ใบแจ้งหนี้ลูกค้า:บริษัทตัวอย่างจำากัดวันที่ออกเอกสาร:2026-11-12Itemsกรุณาชำาระเงินภายในสามสิบวันนับจากวันที่ออกเอกสารโดยโอนเข้าบัญชีของบริษัทและส่งหนังสือรับรองการหักภาษีณที่จ่ายมาพร้อมกันDescriptionQtyUnitpriceTax%Linetotalบริการวางระบบ115000.00715000.00ค่าบำารุงรักษารายเดือน32500.0077500.00Totalssubtotal:22500.00THBtax_total:1575.00THBgrand_total:24075.00THBwithholding_tax:675.00THBnet_payable:2",
+  "lo_engine_docx_pdf": "ใบแจ้งหนี้ลูกค้า:บริษัทตัวอย่างจำากัดวันที่ออกเอกสาร:2026-11-12Itemsกรุณาชำาระเงินภายในสามสิบวันนับจากวันที่ออกเอกสารโดยโอนเข้าบัญชีของบริษัทและส่งหนังสือรับรองการหักภาษีณที่จ่ายมาพร้อมกันDescriptionQtyUnitpriceTax%Linetotalบริการวางระบบ115000.00715000.00ค่าบำารุงรักษารายเดือน32500.0077500.00Totalssubtotal:22500.00THBtax_total:1575.00THBgrand_total:24075.00THBwithholding_tax:675.00THBnet_payable:2"
+ }
+}

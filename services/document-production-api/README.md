@@ -99,7 +99,26 @@ python -m production_trace manual  --root .runtime/document-out <job_id>
 python -m production_trace verify  --root .runtime/document-out <job_id>
 ```
 
-Feature comparison with Word and invoicing software: [docs/PARITY.md](docs/PARITY.md).
+Feature comparison with Word, Google Docs and Acrobat:
+[docs/parity/documents.md](../../docs/parity/documents.md). The committed
+Word reverse guide [docs/reverse/documents-v1a/word.md](../../docs/reverse/documents-v1a/word.md)
+is generated from `examples/invoice-wht-th.json` and checked by
+`tests/test_reverse_guide.py` (rewrite with `REVERSE_GUIDES_UPDATE=1`); the flow
+(LOGIC / AI-ASSIST / HUMAN-GATE parts) is `document_production/flow.py`.
+
+## Thai invoice totals and layout
+
+- `withholding_tax_rate` (optional, above 0 and at most 15) on `invoice@1` and
+  `quotation@1` adds `withholding_tax` (on the amount before VAT) and
+  `net_payable` (= `grand_total − withholding_tax`) to the totals; QA checks the
+  subtraction. Requests without it hash and render exactly as before.
+- THB documents in a `th*` locale get `grand_total (ตัวอักษร): (…บาทถ้วน)` after
+  the totals in both files (`thai_text.baht_text`, read like Excel `BAHTTEXT`).
+- The PDF breaks Thai text itself between character clusters
+  (`thai_text.wrap_lines`), so a leading vowel never ends a line and a tone
+  mark never starts one. It does not break by dictionary words.
+- The DOCX page is A4 (top/bottom 0.7", left/right 1.25") and its `Normal`
+  style names `Sarabun` for Latin and Thai, as the Word guide says.
 
 ## Brief adapter interface (T8.1/T8.2)
 

@@ -1,0 +1,28 @@
+{
+ "chars": {
+  "manual": 491,
+  "lo_engine": 491,
+  "engine": 491
+ },
+ "manual_vs_lo_engine": {
+  "equal": true,
+  "ratio": 1.0,
+  "diffs": []
+ },
+ "manual_vs_engine": {
+  "equal": false,
+  "ratio": 0.9837,
+  "diffs": [
+   [
+    "insert",
+    "",
+    "รายเดือน"
+   ],
+   [
+    "delete",
+    "รายเดือน",
+    ""
+   ]
+  ]
+ }
+}
