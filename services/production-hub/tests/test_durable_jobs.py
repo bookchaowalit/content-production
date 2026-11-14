@@ -206,11 +206,13 @@ def test_worker_heartbeat_keeps_long_effect_leased(tmp_path: Path, monkeypatch: 
 
     item = manager(tmp_path)
     job = item.submit_send(payload())
-    worker = Worker(Hub(tmp_path), worker_id="one", lease_seconds=0.15)
+    # The work outlasts the lease several times over, so only the heartbeat keeps it leased. The lease
+    # is long enough that a slow shared CI runner cannot miss two heartbeats (0.15 s was flaky).
+    worker = Worker(Hub(tmp_path), worker_id="one", lease_seconds=0.6)
     monkeypatch.setattr(worker, "prepare", lambda lease: None)
 
     def slow(data: Any, log: Any) -> dict[str, Any]:
-        time.sleep(0.4)
+        time.sleep(1.8)
         item.queue.recover()
         assert item.status(job["job_id"])["status"] == "running"  # type: ignore[index]
         return {"outputs": []}
