@@ -12,7 +12,7 @@ v0.2). Each finding was checked against the code at b2f126a. Outcome: **revise**
 | 5 | P1 | Codex | One shared env file leaks every secret to every service; base `environment` overrides env file | yes (Compose semantics, base file) | per-service env files, `environment: !override`, `check-config.sh`, AC-26 |
 | 6 | P2 | Claude | Disk check per session is TOCTOU; temp location unclear | yes (`services.py` temp in `/tmp`) | reservation sum, temp in `STORAGE_ROOT/tmp`, AC-9 |
 | 7 | P2 | Claude | Background task uses closed request session; no fencing on takeover | yes (`dependencies.py` yield session) | own session, heartbeat + token guard, AC-11 |
-| 8 | P2 | Claude | Two render copies; only one purged | yes (`render/service.py:262`, `jobtrace.py:61`) | R-RET-2 both copies, AC-18 |
+| 8 | P2 | Claude | Two render copies; only one purged | **wrong** — corrected in R3a #11: one file (`storage_key` = job-dir `render.mp4`) | v0.3 said both copies; v0.4 deletes the one file |
 | 9 | P2 | Claude | CSRF rule unclear in `off` mode; HEAD reads whole upstream body | yes | R-PROXY-6 both modes + direct API port locally; HEAD cancels upstream |
 | 10 | P2 | Codex | Backup vs API chunk deletes | yes | exclude `uploads/` `tmp/`, restore fix-up deletes open sessions |
 | 11 | P2 | Codex | Redis queue not restored | yes (`stages.py:334-338` failed-only retry) | restore fix-up + R-QUEUE, AC-21 |

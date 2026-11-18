@@ -6,8 +6,8 @@ Standard: ADR-0004 — TDD + SDD.
 
 | Field | Value |
 |---|---|
-| Spec ID / version | SPEC-001 / 0.3 |
-| Status | R1 revise → v0.2; R2 revise → v0.3; awaiting R3, then owner approval |
+| Spec ID / version | SPEC-001 / 0.4 |
+| Status | R1 revise → v0.2; R2 revise → v0.3; Codex on 8f7ff36 revise → v0.4; awaiting R3, then owner approval |
 | Repository / path | bookchaowalit/content-production / `specs/001-video-studio-hosted/spec.md` |
 | Owner (maker) | Claude Code |
 | Reviewer (checker) | Fresh Claude reviewer subagent (no maker context) + Codex at Stop |
@@ -16,7 +16,7 @@ Standard: ADR-0004 — TDD + SDD.
 | Related docs | `PRODUCT.md`; `services/video-postproduction/README.md`; `services/video-postproduction-api/README.md`; `apps/video-postproduction-desktop/` (`scripts/runtime-bundle-manifest.js`, `src/runtime/compose.js`, `src/security/studio-csp.js`); ADR-0004, ADR-0007 (design floor), ADR-0014; PRJ-DSO-02; `platform-uptime-worker` `src/targets.ts` |
 | Main-only | no — branch `spec/video-studio-hosted`, then `feat/video-studio-hosted` |
 | Created / approved | 2026-11-18 / — |
-| Review log | `review-R1.md`, `review-R2.md` |
+| Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md` |
 
 ## 1. Problem and intent
 
@@ -72,8 +72,13 @@ Standard: ADR-0004 — TDD + SDD.
 12. `StageRunner.retry_stage` accepts only `failed` stages (`jobs/stages.py:334-338`); `recover_stale_jobs`
     (`jobs/recovery.py`) moves stale `running` jobs to `retry_queued` but nothing re-sends a `queued` job whose
     broker message was lost.
-13. A render is stored twice: `render_outputs.storage_key` (`render/service.py:262`) and `render.mp4` in the job
-    directory (`jobtrace.py:48,61`).
+13. A render is stored once: `render_outputs.storage_key` is `location.key("render.mp4")` inside the job directory
+    (`render/service.py:171-172,240-241,262`), the same file `job_file_route` serves. Every writer (ingest, render)
+    writes its files **before** committing the row that points at them.
+17. A finished stage queues the next one from the worker (`jobs/stages.py` `run_probe` commits, then
+    `queue.enqueue(job.id, "transcribe")`); a crash between the two leaves the job `running` with no stage running.
+18. A project's quality can only go `fast → accurate` (`api/services.py` `enqueue_accurate_retranscription`); there is
+    no route to set it back.
 14. `platform-uptime-worker` answers 404 for a heartbeat name not in `HEARTBEATS`.
 15. Fedora runs `ci-runner-local` and `ci-runner-local-2` (6 GB / 7 CPU each) and an unused `cloudflared`. Fedora
     ships zram swap by default (to be confirmed on the host).
@@ -111,7 +116,9 @@ Standard: ADR-0004 — TDD + SDD.
     verified with `jose` (pinned): `alg` RS256 only, key by `kid` from `https://<team>/cdn-cgi/access/certs`
     (cached ≤ 1 h, one refetch on unknown `kid`), `iss = https://<team>`, `aud` contains `CF_ACCESS_AUD`,
     `exp`/`nbf` with 60 s leeway, `email` = `STUDIO_OWNER_EMAIL` (case-insensitive); else 401 `access_required`.
-  - `off` (set explicitly in the base Compose file): no JWT check, logged once at start.
+  - `off` (set explicitly in the base Compose file, and in a committed `.env.development` with
+    `VIDEO_POSTPRODUCTION_API_INTERNAL_URL=http://127.0.0.1:8000` for `npm run dev`; Next loads that file only in
+    development): no JWT check, logged once at start. The web `DOCPACK` runbook and browser smoke are updated.
   - Unset or any other value: refuse to start.
 - **R-PROXY-8** `lib/api.ts` uses relative `/api/v1/...` URLs. `NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN` is
   removed from the web app, `Dockerfile.web`, the base Compose file and the desktop smoke override; `lib/api.test.ts`,
@@ -141,6 +148,9 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
   sessions. Disk reservation: `free − Σ 2 × size_bytes(live sessions) − 2 × size_bytes ≥ 20 % of the volume`,
   else 507 `insufficient_storage`. Takes one budget unit. → 201 `{id, chunk_bytes: 8 MiB, chunk_count,
   expires_at}` (24 h).
+- **R-UP-MODE** `UPLOAD_MODE` = `both` (default; local and desktop) or `chunked_only` (prod overlay). In
+  `chunked_only` the single-request route answers 405 `use_chunked_upload`. In both modes the single-request route
+  applies the same disk reservation and live-upload count as R-UP-1 before reading the body.
 - **R-UP-2 chunk** `PUT /api/v1/uploads/{upload_id}/chunks/{index}`, raw octet stream, exactly `chunk_bytes`
   except the last; atomic write. Same bytes → 200; different bytes → 409 `chunk_conflict`; not `open` → 409
   `upload_not_open`; expired → 410 `upload_expired`. Chunk PUTs skip the 60/min write limiter and use
@@ -158,22 +168,31 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
   upload_session=…)` streams the ordered chunks into one temp file while hashing, checks size and sha256, then in
   **one transaction** — guarded by `WHERE assembly_token = <mine>` — inserts asset, job, stages and sets the
   session `completed` with `asset_id` / `job_id`. If the guard matches no row (another attempt took over) the temp
-  file is discarded. Mismatch → temp deleted, session `failed` / `upload_checksum_mismatch`, no `media_assets` row,
-  budget returned. After commit: enqueue, then set `processing_jobs.enqueued_at`; then delete the chunks. The
+  file is discarded. Mismatch → session `failed` / `upload_checksum_mismatch`; an FFprobe refusal → `failed` /
+  `asset_not_readable`; in both cases the temp file is deleted, no `media_assets` / job row exists and the budget is
+  returned. After commit: enqueue the `probe` stage, then set its `enqueued_at`; then delete the chunks. The
   single-request route uses the same `ingest_asset` (one copy instead of two).
-- **R-QUEUE** Migration 0004 adds `processing_jobs.enqueued_at`. `recover_unqueued_jobs` re-sends any job in
-  `queued` / `retry_queued` whose `enqueued_at` is null or older than `JOB_LEASE_SECONDS` with no stage running;
-  it runs at API start and every 5 min in the API process. The worker's stage claim is a conditional update
-  `queued → running`, so a duplicate message is a no-op (test).
+- **R-QUEUE** Migration 0004 adds `processing_stages.enqueued_at`. Every hand-off sets the next stage `queued` with
+  `enqueued_at = NULL` **in the same commit** that finishes the previous stage (or creates the job), then enqueues
+  and sets `enqueued_at`. `recover_unqueued_stages` re-sends every `queued` stage of a non-terminal job
+  (`queued`, `running`, `retry_queued`) that has no `running` stage and whose `enqueued_at` is null or older than
+  `JOB_LEASE_SECONDS`; it runs at API start and every 5 min in the API process. The worker claims a stage with a
+  conditional update `queued → running`, so a duplicate message is a no-op. Tests kill the process after ingest
+  commit and after the `probe` → `transcribe` hand-off commit.
 - **R-UP-6 takeover** an `assembling` session whose heartbeat is older than 2 min returns to `open` (new token on
   the next `complete`); temp files in `STORAGE_ROOT/tmp/` older than 1 h with no live session are deleted by the
   sweep.
-- **R-UP-7 abort / expiry** `DELETE /api/v1/uploads/{upload_id}` deletes chunks and the session. Abort, expiry and
-  checksum failure return the budget unit once (`budget_returned`, R-BUDGET).
+- **R-UP-7 abort / expiry** `DELETE /api/v1/uploads/{upload_id}` is a conditional transition from `open` or
+  `failed` to `aborted`, then deletes chunks; on `assembling` → 409 `upload_busy`; on `completed` → 409
+  `upload_completed` (the result stays readable, no budget return). Expiry cleanup applies only to `open` / `failed`
+  sessions. Abort, expiry and failure return the budget unit once (`budget_returned`, R-BUDGET); a `completed`
+  session never returns it.
 - **R-UP-8 sizes** migration 0004 alters `media_assets.size_bytes` to BIGINT; a Postgres test stores 2,147,483,648.
 - **R-UP-9 client** The web app always uses chunks: incremental SHA-256 in a Web Worker with a **pure-JS** library
   (`@noble/hashes`, pinned; no WebAssembly, so the desktop CSP needs no `wasm-unsafe-eval`), one chunk at a time,
-  3 retries per chunk honouring `Retry-After`, progress bar, then `complete` and polling. It stores
+  3 retries per chunk honouring `Retry-After`, progress bar, then `complete` and polling. If a poll shows `open`
+  with every chunk received (assembly was interrupted, R-UP-6), the client sends `complete` again with the same
+  hash. It stores
   `{upload_id, project_id, name, size, lastModified}` in `localStorage`; after a reload it offers "อัปโหลดต่อ —
   เลือกไฟล์เดิม"; a file that does not match name, size and `lastModified` is refused with a message; a match is
   re-hashed locally and only missing chunks are sent.
@@ -197,8 +216,10 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
 - **R-QUALITY** API setting `TRANSCRIPTION_QUALITIES` (default `fast,accurate`). `GET /transcription/capabilities`
   adds `qualities`. A quality not listed → 422 `quality_unavailable` on create, retranscribe, upload (single or
   session) into a project whose stored quality is not listed, and retry. The worker checks again before loading a
-  model and fails the stage with `quality_unavailable` (no silent downgrade). The UI shows only listed qualities and
-  tells the user to switch an existing project to `fast`.
+  model and fails the stage with `quality_unavailable` (no silent downgrade). `PATCH /api/v1/projects/{project_id}`
+  `{transcription_quality}` (write gate) sets any listed quality while no job of the project is `queued` /
+  `running` / `retry_queued` (else 409 `project_busy`). The UI shows only listed qualities and offers
+  "เปลี่ยนเป็น fast" on a project whose stored quality is not listed.
 - **R-COMPOSE-3** `restart: unless-stopped`; Celery `--concurrency=1`. Limits:
 
   | Service | mem_limit | cpus |
@@ -212,6 +233,10 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
 
   ≈ 4.4 GB; with D3 the runner caps are 10 GB, worst case ≈ 14.4 GB of 15 GB, relying on zram (checked in AC-12).
   Fallback if AC-12 fails: stop `ci-runner-local-2` while rendering (owner decision).
+- **R-SCHEMA-WAIT** The worker `depends_on` the API with `condition: service_healthy` (the API is healthy only after
+  its migrate step), and at start the worker checks that the database revision is at least its own head; if not it
+  waits (retry every 5 s, up to 5 min) and only then consumes the queue. Test: start a new worker on an old schema
+  with a message waiting in Redis.
 - **R-NONROOT** Both images run their process as uid/gid 10001. API image: `HF_HOME=/app/cache/huggingface`. Its
   entrypoint starts as root only to fix ownership: if the top-level owner of `/app/storage` or `/app/cache` is not
   10001 it runs `chown -R 10001:10001` on it once, then `exec setpriv --reuid 10001 --regid 10001 --init-groups`
@@ -237,8 +262,8 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
 
 - **R-RET-1** `python -m video_postproduction.retention sweep [--dry-run]`; migration 0004 adds nullable
   `purged_at` to `media_assets` and `render_outputs`.
-- **R-RET-2** Deleted: the source file of a `media_assets` row older than 30 days; for a `render_outputs` row older
-  than 90 days, **both** copies — the `storage_key` file and `render.mp4` in its job directory; expired upload
+- **R-RET-2** Deleted: the source file of a `media_assets` row older than 30 days; the `render.mp4` file
+  (`render_outputs.storage_key`) of a row older than 90 days; expired upload
   sessions with their chunks; stale temp files (R-UP-6). Kept: all rows, `trace.json`, `MANUAL-STEPS.md`,
   `edl.json`, `timeline.edl` / `.fcpxml` / `.otio`, `captions*.srt|ass`, `history.jsonl`.
 - **R-RET-3** In-flight protection: the sweep locks each candidate asset row (`SELECT … FOR UPDATE`) and skips it
@@ -266,12 +291,18 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
   (shared with retention): `pg_dump -Fc`, then `restic backup` of the dump plus the storage volume **excluding
   `uploads/` and `tmp/`** to R2 `video-studio-backup` (bucket-scoped token), then `restic forget --keep-daily 14
   --keep-weekly 8 --keep-monthly 6 --prune`; logs repository size; heartbeat `video-studio-backup`. In-flight
-  uploads are not backed up (accepted).
+  uploads are not backed up (accepted). The dump is taken **before** the file snapshot; because every writer writes
+  files before committing their row (fact 13) and only retention deletes media (under the same lock), every row in
+  the dump has its file in the snapshot. The reverse — a file or `history.jsonl` line from a job that committed after
+  the dump — is possible and is cleaned by the restore reconcile (R-BAK-3). A test asserts that no code path other
+  than retention deletes media files.
 - **R-BAK-2** Size is bounded by D6; R2 is free to 10 GB, then about $0.015 / GB-month; the logged size shows growth.
 - **R-BAK-3** Restore (`docs/runbooks/video-studio.md`, `scripts/studio/restore.sh`) into a throwaway Compose
   project (other project name, no ports, no tunnel), then a fix-up step: delete `upload_sessions` that are `open` or
-  `assembling`; set `running` jobs/stages to `retry_queued`; clear `enqueued_at` on `queued` / `retry_queued` jobs.
-  R-QUEUE then re-sends them when the API starts (Redis is not restored). Then check one project's asset,
+  `assembling`; set `running` jobs to `retry_queued` and `running` stages to `queued` (as `jobs/recovery.py` does);
+  clear `enqueued_at` on every `queued` stage. R-QUEUE then re-sends them when the API starts (Redis is not
+  restored). Reconcile: job directories and media files with no row are removed, and `history.jsonl` lines whose
+  job id has no row are dropped; the counts are printed. Then check one project's asset,
   transcript, EDL and render hash against `trace.json`. Once before release, then monthly.
 
 ### F7 — Release, update and rollback
@@ -320,24 +351,27 @@ Tests: `services/video-postproduction-api/tests/` (`test_upload_sessions.py`, `t
 | AC-7 | R-PROXY-1/2, R-INLINE | On the built standalone image: `Range: bytes=0-1023` → 206 + `Content-Range`; HEAD → headers only and the upstream read is cancelled; stream is `inline`; `<video>` seeks. | spike + `proxy.test.ts::range`, `::head_cancels`, E2E |
 | AC-8 | R-PROXY-4 | Every proxied response has `private, no-store`; on prod a render stream shows `cf-cache-status` `BYPASS`/`DYNAMIC`. | `proxy.test.ts::no_store`, evidence |
 | AC-9 | R-UP-1/2/4 | Same chunk bytes → 200, different → 409; 4th live session → 429; two concurrent sessions that together exceed the disk rule → second 507; two concurrent `complete` → one asset, one job. | `test_upload_sessions.py` |
-| AC-10 | R-UP-5 | Wrong sha256 → session `failed`, no `media_assets` row, budget back. Kill between ingest commit and enqueue → after restart the job is enqueued once by R-QUEUE and runs once. | `test_upload_sessions.py::checksum_mismatch_*`, `test_queue_recovery.py` |
-| AC-11 | R-UP-6/7, R-BUDGET | Stale heartbeat → takeover, the slow original's commit is refused by the token guard; abort/expiry/mismatch return budget once and only to the same UTC day; budget survives API restart; the sweep can return a unit. | `test_upload_sessions.py::takeover_*`, `test_budget.py` |
+| AC-10 | R-UP-5 | Wrong sha256 → session `failed`, no `media_assets` row, budget back. An unreadable video with a matching hash → `failed`/`asset_not_readable`, no rows, budget back. Kill after the ingest commit, and after the probe→transcribe hand-off → after restart each stage is enqueued once and runs once; a duplicate message is a no-op. | `test_upload_sessions.py::checksum_mismatch_*`, `::ffprobe_reject`, `test_queue_recovery.py` |
+| AC-11 | R-UP-6/7, R-BUDGET | Stale heartbeat → takeover, the slow original's commit is refused by the token guard; an API restart mid-assembly ends `completed` after the client re-sends `complete`; DELETE on `assembling` → 409 and on `completed` → 409 with the result kept; abort/expiry/failure return budget once and only to the same UTC day; budget survives API restart; the sweep can return a unit. | `test_upload_sessions.py::takeover_*`, `test_budget.py` |
 | AC-12 | R-COMPOSE-3 | Given both runners busy and zram active (`zramctl` output recorded), a 10-min 1080p render finishes, no `OOMKilled=true`, no OOM in `dmesg`. | evidence |
 | AC-13 | R-UP-2/9 | Through the hostname with client upstream throttled to 3 Mbit/s, a 1.5 GB upload has every chunk < 30 s; a 429 through the proxy carries `Retry-After` and the client waits; reload → resume prompt; wrong file refused; right file sends only missing chunks. | E2E evidence + `upload-client.test.ts::resume_*`, `::retry_after` |
 | AC-14 | R-UP-8 | 2,147,483,648 bytes round-trips on Postgres. | `test_migrations_pg.py::bigint_size` |
 | AC-15 | F1–F3 | On prod: upload → transcribe (Thai, fast) → edit EDL → render → download; `production_trace verify` passes. | E2E evidence |
-| AC-16 | R-QUALITY | With `fast` only: create, retranscribe, upload into an `accurate` project, and retry → 422; a queued `accurate` job fails with `quality_unavailable` at the worker; UI shows no Accurate option. | `test_quality.py`, UI test |
+| AC-16 | R-QUALITY | With `fast` only: create, retranscribe, upload into an `accurate` project, and retry → 422; a queued `accurate` job fails with `quality_unavailable` at the worker; `PATCH` to `fast` makes the project upload again (409 while busy); UI shows no Accurate option and offers the switch. | `test_quality.py`, UI test |
 | AC-17 | R-HEALTH | Postgres or Redis stopped → web `/healthz` 503 degraded; both up → 200. | `test_readyz.py`, evidence |
-| AC-18 | R-RET-1…5 | Dry-run lists exactly the expired files; a real run deletes both render copies, keeps the kept files, sets `purged_at`; purged routes → 410/409; an asset with a queued job is skipped; a run killed after commit is finished next run. | `test_retention.py` |
+| AC-18 | R-RET-1…5 | Dry-run lists exactly the expired files; a real run deletes the render file and then render stream, download and `job_file_route` all answer 410 while `trace.json` stays, keeps the kept files, sets `purged_at`; purged routes → 410/409; an asset with a queued job is skipped; a run killed after commit is finished next run. | `test_retention.py` |
 | AC-19 | R-RET-6, R-OBS-1/2, R-BAK-1 | Within 24 h of release the target and three heartbeats are green; retention with < 20 % free → `ok:false`; retention started during a backup waits for the lock. | monitor `/status`, `test_retention.py::low_disk`, evidence |
 | AC-20 | R-OBS-3 | A worker task error and a web server error each produce one scrubbed Sentry event. | fake-transport tests + one live check each |
-| AC-21 | R-BAK-1/3 | A drill with one unfinished job and one open upload restores DB + media from R2; fix-up runs; the unfinished job completes; hashes match `trace.json`; backup size is logged. | drill log |
+| AC-21 | R-BAK-1/3 | A drill whose backup ran while a stage was `running`, with one open upload and a render that finished between dump and file snapshot, restores DB + media from R2; fix-up and reconcile run (orphan render removed); the interrupted job completes; hashes match `trace.json`; backup size is logged. | drill log |
 | AC-22 | R-REL-2/3 | CI: an image of head N starts on a schema at N+1 and logs `schema_newer_than_code`. Host: release `studio-v0.1.1` (with an additive rehearsal migration) is rolled back to `studio-v0.1.0` in ≤ 10 min; `/healthz` 200; a project opens through the hostname; no data lost. | `test_migrate_wrapper.py`, evidence |
 | AC-23 | R-NONROOT, R-CI-1 | Both processes run as 10001; image-scan clean of high/critical; a local stack with root-owned volumes from b2f126a upgrades and plays old media. | CI, evidence |
 | AC-24 | R-DESK, R-PROXY-8, R-CI-2 | CI builds and starts the stack from the staged desktop bundle (`/readyz` 200, worker ping); desktop `compose ps` parsing passes on it; on Windows, the desktop window uploads (chunked, hash via pure JS under its CSP) and renders. | CI, desktop tests, evidence |
 | AC-25 | R-HOST-3 | After a Fedora reboot the stack is back and `/healthz` 200 with no manual step. | evidence |
 | AC-26 | R-COMPOSE-2 | `check-config.sh` passes in CI: each secret appears only in its services; an empty base default cannot override an env file value. | CI |
 | AC-27 | R-CI-4 | `require-tests` and `coverage-threshold` are on for API and web; new modules ≥ 90 %. | CI |
+| AC-29 | R-UP-MODE | In `chunked_only` the multipart route answers 405; in `both` it refuses with 507 when the reservation fails. | `test_upload_sessions.py::upload_mode_*` |
+| AC-30 | R-SCHEMA-WAIT | A new worker started on an old schema with a waiting message does not consume it until the migration is done, then runs it. | `test_migrate_wrapper.py::worker_waits` |
+| AC-31 | R-PROXY-7 (dev) | `npm run dev` with the committed `.env.development` serves the studio against a local API on `127.0.0.1:8000`; a production build ignores that file. | web test + evidence |
 | AC-28 | ADR-0007 floor | Project list, new project (progress, resume prompt, wrong-file message) and editor: reflow without horizontal scroll at 320 / 375 / 390 / 768 / 1440 px; upload, resume and cancel work by keyboard alone with visible focus; design-floor checker passes. Before and after deploy. | screenshots, keyboard walk-through log, checker output |
 
 ## 4. Threats and how this spec handles them
