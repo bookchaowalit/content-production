@@ -6,8 +6,8 @@ Standard: ADR-0004 — TDD + SDD.
 
 | Field | Value |
 |---|---|
-| Spec ID / version | SPEC-001 / 0.5 |
-| Status | R1 revise → v0.2; R2 revise → v0.3; Codex on 8f7ff36 revise → v0.4; Codex on 5f6708a revise → v0.5; awaiting R3, then owner approval |
+| Spec ID / version | SPEC-001 / 0.6 |
+| Status | R1 revise → v0.2; R2 revise → v0.3; Codex on 8f7ff36 revise → v0.4; Codex on 5f6708a revise → v0.5; Codex on 27a69aa revise → v0.6; awaiting R3, then owner approval |
 | Repository / path | bookchaowalit/content-production / `specs/001-video-studio-hosted/spec.md` |
 | Owner (maker) | Claude Code |
 | Reviewer (checker) | Fresh Claude reviewer subagent (no maker context) + Codex at Stop |
@@ -16,7 +16,7 @@ Standard: ADR-0004 — TDD + SDD.
 | Related docs | `PRODUCT.md`; `services/video-postproduction/README.md`; `services/video-postproduction-api/README.md`; `apps/video-postproduction-desktop/` (`scripts/runtime-bundle-manifest.js`, `src/runtime/compose.js`, `src/security/studio-csp.js`); ADR-0004, ADR-0007 (design floor), ADR-0014; PRJ-DSO-02; `platform-uptime-worker` `src/targets.ts` |
 | Main-only | no — branch `spec/video-studio-hosted`, then `feat/video-studio-hosted` |
 | Created / approved | 2026-11-18 / — |
-| Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md`, `review-R3b.md` |
+| Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md`, `review-R3b.md`, `review-R3c.md` |
 
 ## 1. Problem and intent
 
@@ -148,7 +148,8 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
   Every route that queues transcription (single upload, session create, retranscribe, retry) uses it, so API
   restarts no longer reset it and the retention sweep can return units. A unit is returned only to the day it was
   taken (`budget_day`); a return after that day has ended is a no-op.
-- **R-UP-1 create** `POST /api/v1/projects/{project_id}/uploads` `{filename, media_type, size_bytes}`: validates
+- **R-UP-1 create** `POST /api/v1/projects/{project_id}/uploads` `{filename, media_type, size_bytes, sha256}` (the
+  client hashes the whole file **before** creating the session, R-UP-9): validates
   name, MIME, `0 < size_bytes ≤ MAX_UPLOAD_BYTES`, and the project's quality (R-QUALITY). Deletes expired sessions
   (lazy). 429 `too_many_uploads` if the project has 3 or the server 6 live sessions (`open` and not expired, or
   `assembling` whatever its `expires_at`). Disk reservation: `free − Σ 2 × size_bytes(live sessions) − 2 × size_bytes ≥ 20 % of the volume`,
@@ -163,8 +164,9 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
   `UPLOAD_CHUNK_RATE_LIMIT_PER_MINUTE` (default 600), answering 429 with `Retry-After` (passed through by
   R-PROXY-3). 8 MiB fits the 30 s write timeout at ≥ 2.5 Mbit/s upstream.
 - **R-UP-3 status** `GET /api/v1/uploads/{upload_id}` → `{status, received: [{index, sha256}], chunk_count, size_bytes, chunk_bytes,
-  expires_at, asset_id, job_id, error_code}`.
-- **R-UP-4 complete** `POST /api/v1/uploads/{upload_id}/complete` `{sha256}`; takes no budget. A conditional update
+  expires_at, sha256, asset_id, job_id, error_code}`.
+- **R-UP-4 complete** `POST /api/v1/uploads/{upload_id}/complete` (no body; the expected hash is the one stored at
+  create); takes no budget. An expired `open` session → 410 `upload_expired` on the first call. A conditional update
   `open → assembling` with a new `assembly_token` lets exactly one caller win; every caller gets 202 with the
   R-UP-3 body; on `assembling` / `completed` it returns the current state and never creates a second asset.
   Missing chunks → 409 `upload_incomplete`.
@@ -178,23 +180,33 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
   attempt only deletes its own temp file. Mismatch → session `failed` / `upload_checksum_mismatch`; an FFprobe refusal → `failed` /
   `asset_not_readable`; in both cases the temp file is deleted, no `media_assets` / job row exists and the budget is
   returned. After commit: enqueue the `probe` stage, then set its `enqueued_at`; then delete the chunks. Chunks of
-  `completed` sessions that are still on disk (crash, broker down) are deleted at API start and by the sweep,
-  without touching the result or the budget. The
+  `completed`, `aborted` and `failed` sessions that are still on disk (crash, broker down) are deleted at API start
+  and by the sweep, without touching results or budget. The
   single-request route uses the same `ingest_asset` (one copy instead of two).
 - **R-QUEUE** Stage states become `blocked → queued → running → succeeded | failed`. Ingest creates `probe`
   `queued` and `transcribe` `blocked`; migration 0004 turns any `queued` stage whose previous stage has not
   `succeeded` into `blocked`. Every hand-off sets the next stage `blocked → queued` with `enqueued_at = NULL` **in
   the same commit** that finishes the previous stage; the last stage's `succeeded` and the job's `succeeded` (or
-  `failed`) are one commit. After the commit the worker enqueues and sets `enqueued_at`. The worker claims with a
+  `failed`) are one commit. After the commit the worker (or the API, for the first stage) enqueues and sets `enqueued_at`. A failed enqueue
+  leaves the stage `queued` with `enqueued_at = NULL` for recovery; the job is **not** marked failed (today's
+  `queue_error` path in `upload_asset` is removed) and the API answers 202 as usual. The worker claims with a
   conditional update `queued → running` that also requires the previous stage `succeeded`, so a duplicate or
   early message is a no-op.
-- **R-LEASE** A running stage refreshes `processing_stages.heartbeat_at` every 60 s from a worker thread.
+- **R-LEASE** Each claim writes a new `processing_stages.lease_token`. Every later worker write for that stage —
+  heartbeat, outputs rows, finish, hand-off, failure — is a conditional update `WHERE id = <stage> AND status =
+  'running' AND lease_token = <mine>`; when it matches no row the worker stops and discards its work. Files are
+  written to an attempt-scoped path (`…/attempt-<lease_token>/`) and moved to their final key only after a guarded
+  check, then committed; a crash between move and commit leaves files that the sweep removes (job-directory media of
+  a render whose row is not `succeeded` and whose stage has no live lease). A running stage refreshes
+  `processing_stages.heartbeat_at` every 60 s from a worker thread.
   `recover_jobs` runs at API start and every 5 min in the API process: (a) a `running` stage whose heartbeat is
-  older than 3 min goes back to `queued` (attempt counted, `max_stage_attempts` respected) and its job to
-  `retry_queued`; (b) every `queued` stage of a non-terminal job whose `enqueued_at` is null or older than
+  older than 3 min loses its lease (token cleared): if attempts remain it goes back to `queued` and its job to
+  `retry_queued`; on the last attempt the stage and the job become `failed` / `lease_expired` in one commit; (b) every `queued` stage of a non-terminal job whose `enqueued_at` is null or older than
   `JOB_LEASE_SECONDS` is re-sent. A long stage with a live heartbeat is never taken over. The old
   `recover_stale_jobs` is replaced. Tests stop the worker after the claim, after the probe → transcribe hand-off and
-  before the final commit, and run against rows created by the old schema.
+  before the final commit, and run against rows created by the old schema. Migration 0004 repairs old rows: a `running` stage gets
+  `heartbeat_at = now()` (so recovery takes it over after 3 min if nothing is running), and a job whose last stage
+  is `succeeded` but which is still `running` is set `succeeded`.
 - **R-UP-6 takeover** an `assembling` session whose heartbeat is older than 2 min returns to `open` and its
   `assembly_token` is cleared **in the same update** (the old attempt can no longer commit; the next `complete`
   issues a new token); temp files in `STORAGE_ROOT/tmp/` older than 1 h with no live session are deleted by the
@@ -205,16 +217,16 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
   sessions; an `assembling` session keeps its reservation and slot until it ends or is taken over. Abort, expiry and failure return the budget unit once (`budget_returned`, R-BUDGET); a `completed`
   session never returns it.
 - **R-UP-8 sizes** migration 0004 alters `media_assets.size_bytes` to BIGINT; a Postgres test stores 2,147,483,648.
-- **R-UP-9 client** The web app always uses chunks: incremental SHA-256 in a Web Worker with a **pure-JS** library
-  (`@noble/hashes`, pinned; no WebAssembly, so the desktop CSP needs no `wasm-unsafe-eval`), one chunk at a time,
-  3 retries per chunk honouring `Retry-After`, progress bar, then `complete` and polling. If a poll shows `open`
-  with every chunk received (assembly was interrupted, R-UP-6), the client sends `complete` again with the same
-  hash. It stores
+- **R-UP-9 client** The web app always uses chunks. First it hashes the whole file and each chunk in a Web Worker
+  with a **pure-JS** SHA-256 (`@noble/hashes`, pinned; no WebAssembly, so the desktop CSP needs no
+  `wasm-unsafe-eval`), showing "กำลังตรวจไฟล์" progress; then it creates the session and sends one chunk at a time,
+  3 retries per chunk honouring `Retry-After`, progress bar, then `complete` and polling. It stores
   `{upload_id, project_id, name, size, lastModified}` in `localStorage`; after a reload it offers "อัปโหลดต่อ —
   เลือกไฟล์เดิม"; a file that does not match name, size and `lastModified` is refused with a message. On a match the client
-  hashes the file locally per chunk and compares the digests of the chunks the server already has (R-UP-3 returns
-  them as `received: [{index, sha256}]`); any difference refuses the file as "ไม่ใช่ไฟล์เดิม" and the session
-  stays `open`. Only then are the missing chunks sent.
+  re-hashes the file; the whole-file hash must equal the session's `sha256` and each received chunk's digest
+  (R-UP-3 `received: [{index, sha256}]`) must match, else the file is refused as "ไม่ใช่ไฟล์เดิม" and the session
+  stays `open`. Only then are the missing chunks sent. If a poll shows `open` with every chunk received, the client
+  calls `complete` again.
 
 ### F3 — Production Compose overlay and images
 
@@ -320,10 +332,14 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
   project (other project name, no ports, no tunnel), then a fix-up step: delete `upload_sessions` that are `open` or
   `assembling`; set `running` jobs to `retry_queued` and `running` stages to `queued` (as `jobs/recovery.py` does);
   clear `enqueued_at` on every `queued` stage. R-QUEUE then re-sends them when the API starts (Redis is not
-  restored). Reconcile, by kind: **exports** have no rows by design, so `export-*` directories and their history lines are
-  always kept; **renders** follow the dumped `render_outputs.status` — a row that is not `succeeded` has its
-  job-directory files and history lines removed and is set `failed` / `interrupted_by_restore` (the owner re-renders);
-  a render directory with no row at all is removed; **source media** files with no `media_assets` row are removed.
+  restored). Reconcile, by kind (job directories are `render-<id>` or `export-<id>`):
+  **exports** have no rows by design; an `export-*` directory is kept with its history line when its `trace.json`
+  passes `production_trace verify`, otherwise both are removed. **Renders** follow the dumped
+  `render_outputs.status`: `succeeded` and `failed` are kept as they are (a failed job's trace stays); a row in a
+  non-terminal state has its job-directory files and history lines removed and becomes `failed` /
+  `interrupted_by_restore`, and its processing stage (if any) `failed` in the same commit, so render, stage and job
+  agree. The owner renders again with the existing render route (a new render id). A `render-*` directory or
+  history line whose id has no row is removed. **Source media** files with no `media_assets` row are removed.
   The counts are printed. Then check one project's asset,
   transcript, EDL and render hash against `trace.json`. Once before release, then monthly.
 
@@ -352,8 +368,8 @@ every ingest temp file lives in `STORAGE_ROOT/tmp/` (same filesystem as the fina
 - **R-CI-3** Migration tests on a Postgres service container: `upgrade head`, BIGINT (R-UP-8), and the
   newer-schema start (R-REL-2).
 - **R-CI-4** ADR-0004 gates, using the inputs each reusable workflow really has: the API job (`ci-python.yml`)
-  sets `coverage-threshold` (pytest exits non-zero when no test is collected); the web job runs
-  `npx vitest run --coverage --coverage.reporter=json-summary` so `coverage/coverage-summary.json` exists, and sets
+  sets `coverage-threshold` (pytest exits non-zero when no test is collected); the web job adds the dev dependency `@vitest/coverage-v8` at the same major as `vitest` (5.x), pinned in
+  `package-lock.json`, and runs `npx vitest run --coverage --coverage.reporter=json-summary` so `coverage/coverage-summary.json` exists, and sets
   `coverage-threshold` (plus `require-tests` where that workflow offers it). Thresholds = measured baseline on
   `main` rounded down; new modules (proxy, upload sessions, retention, migrate, recovery) reach ≥ 90 % lines.
 
@@ -375,10 +391,10 @@ Tests: `services/video-postproduction-api/tests/` (`test_upload_sessions.py`, `t
 | AC-7 | R-PROXY-1/2, R-INLINE | On the built standalone image: `Range: bytes=0-1023` → 206 + `Content-Range`; HEAD → headers only and the upstream read is cancelled; stream is `inline`; `<video>` seeks. | spike + `proxy.test.ts::range`, `::head_cancels`, E2E |
 | AC-8 | R-PROXY-4 | Every proxied response has `private, no-store`; on prod a render stream shows `cf-cache-status` `BYPASS`/`DYNAMIC`. | `proxy.test.ts::no_store`, evidence |
 | AC-9 | R-UP-1/2/4 | Same chunk bytes → 200, different → 409; 4th live session → 429; two concurrent sessions that together exceed the disk rule → second 507; two concurrent `complete` → one asset, one job. | `test_upload_sessions.py` |
-| AC-10 | R-UP-5 | Wrong sha256 → session `failed`, no `media_assets` row, budget back. An unreadable video with a matching hash → `failed`/`asset_not_readable`, no rows, budget back. Kill after the ingest commit (chunks of the `completed` session are gone after restart), after the probe→transcribe hand-off, after a claim, and before the final commit → after restart each stage runs once and the job ends `succeeded`; a duplicate or early `transcribe` message is a no-op; a long stage with a live heartbeat is not taken over; rows from the old schema migrate to `blocked` correctly. | `test_upload_sessions.py::checksum_mismatch_*`, `::ffprobe_reject`, `test_queue_recovery.py` |
+| AC-10 | R-UP-5 | Wrong sha256 → session `failed`, no `media_assets` row, budget back. An unreadable video with a matching hash → `failed`/`asset_not_readable`, no rows, budget back. Kill after the ingest commit (chunks of the `completed` session are gone after restart), after the probe→transcribe hand-off, after a claim, and before the final commit → after restart each stage runs once and the job ends `succeeded`; a duplicate or early `transcribe` message is a no-op; a long stage with a live heartbeat is not taken over; rows from the old schema migrate to `blocked` correctly; a stalled worker that wakes after losing its lease writes nothing; the last attempt's lease expiry ends the job `failed`; a failed enqueue leaves the job recoverable. | `test_upload_sessions.py::checksum_mismatch_*`, `::ffprobe_reject`, `test_queue_recovery.py` |
 | AC-11 | R-UP-6/7, R-BUDGET | Stale heartbeat → takeover clears the token; the slow original's success and failure writes are refused, also after a DELETE; an `assembling` session past `expires_at` still counts in the reservation; an API restart mid-assembly ends `completed` after the client re-sends `complete`; DELETE on `assembling` → 409 and on `completed` → 409 with the result kept; abort/expiry/failure return budget once and only to the same UTC day; budget survives API restart; the sweep can return a unit. | `test_upload_sessions.py::takeover_*`, `test_budget.py` |
 | AC-12 | R-COMPOSE-3 | Given both runners busy and zram active (`zramctl` output recorded), a 10-min 1080p render finishes, no `OOMKilled=true`, no OOM in `dmesg`. | evidence |
-| AC-13 | R-UP-2/9 | Through the hostname with client upstream throttled to 3 Mbit/s, a 1.5 GB upload has every chunk < 30 s; a 429 through the proxy carries `Retry-After` and the client waits; reload → resume prompt; wrong file refused, including one with the same name, size and `lastModified` but different bytes (session stays `open`); right file sends only missing chunks. | E2E evidence + `upload-client.test.ts::resume_*`, `::retry_after` |
+| AC-13 | R-UP-2/9 | Through the hostname with client upstream throttled to 3 Mbit/s, a 1.5 GB upload has every chunk < 30 s; a 429 through the proxy carries `Retry-After` and the client waits; reload → resume prompt; wrong file refused, including one with the same name, size and `lastModified` but different bytes in a chunk not yet sent (whole-file hash differs; session stays `open`); an expired session's first `complete` → 410; right file sends only missing chunks. | E2E evidence + `upload-client.test.ts::resume_*`, `::retry_after` |
 | AC-14 | R-UP-8 | 2,147,483,648 bytes round-trips on Postgres. | `test_migrations_pg.py::bigint_size` |
 | AC-15 | F1–F3 | On prod: upload → transcribe (Thai, fast) → edit EDL → render → download; `production_trace verify` passes. | E2E evidence |
 | AC-16 | R-QUALITY | With `fast` only: create, retranscribe, upload into an `accurate` project, and retry → 422; a queued `accurate` job fails with `quality_unavailable` at the worker; `PATCH` to `fast` makes the project upload again (409 while busy); UI shows no Accurate option and offers the switch. | `test_quality.py`, UI test |
@@ -386,7 +402,7 @@ Tests: `services/video-postproduction-api/tests/` (`test_upload_sessions.py`, `t
 | AC-18 | R-RET-1…5 | Dry-run lists exactly the expired files; a real run deletes the render file and then render stream, download and `job_file_route` all answer 410 while `trace.json` stays, keeps the kept files, sets `purged_at`; purged routes → 410/409; an asset with a queued job is skipped; a run killed after commit is finished next run. | `test_retention.py` |
 | AC-19 | R-RET-6, R-OBS-1/2, R-BAK-1 | Within 24 h of release the target and three heartbeats are green; retention with < 20 % free → `ok:false`; retention started during a backup waits for the lock. | monitor `/status`, `test_retention.py::low_disk`, evidence |
 | AC-20 | R-OBS-3 | A worker task error and a web server error each produce one scrubbed Sentry event. | fake-transport tests + one live check each |
-| AC-21 | R-BAK-1/3 | A drill whose backup ran while a stage was `running`, with one open upload and a render that finished between dump and file snapshot, plus an export made before the backup, restores DB + media from R2; fix-up and reconcile run (the in-progress render is `failed`/`interrupted_by_restore` with its files and history lines removed; the export and its history line stay); the interrupted job completes; hashes match `trace.json`; backup size is logged. | drill log |
+| AC-21 | R-BAK-1/3 | A drill whose backup ran while a stage was `running`, with one open upload and a render that finished between dump and file snapshot, plus an export and a failed render made before the backup, restores DB + media from R2; fix-up and reconcile run (the in-progress render is `failed`/`interrupted_by_restore` with its files and history lines removed; the export (trace verified) and the failed render's trace stay; render, stage and job states agree; a new render of the same EDL succeeds); the interrupted job completes; hashes match `trace.json`; backup size is logged. | drill log |
 | AC-22 | R-REL-2/3 | CI: an image of head N starts on a schema at N+1 and logs `schema_newer_than_code`. Host: release `studio-v0.1.1` (with an additive rehearsal migration) is rolled back to `studio-v0.1.0` in ≤ 10 min; `/healthz` 200; a project opens through the hostname; no data lost. | `test_migrate_wrapper.py`, evidence |
 | AC-23 | R-NONROOT, R-CI-1 | Both processes run as 10001; image-scan clean of high/critical; a local stack with root-owned volumes from b2f126a upgrades and plays old media. | CI, evidence |
 | AC-24 | R-DESK, R-PROXY-8, R-CI-2 | CI builds and starts the stack from the staged desktop bundle (`/readyz` 200, worker ping); desktop `compose ps` parsing passes on it; the web image built from the bundle refuses to start with `STUDIO_ACCESS_MODE` unset; on Windows, the desktop window uploads (chunked, hash via pure JS under its CSP) and renders. | CI, desktop tests, evidence |
