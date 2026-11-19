@@ -1,0 +1,9 @@
+[Unit]
+Description=Video Studio worker heartbeat (SPEC-001 R-OBS-2)
+After=video-studio.service
+
+[Service]
+Type=oneshot
+User=bookchaowalit
+Environment=STUDIO_HOME=/srv/video-studio
+ExecStart=/srv/video-studio/src/scripts/studio/studio.sh worker-ping

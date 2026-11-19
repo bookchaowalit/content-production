@@ -1,0 +1,10 @@
+[Unit]
+Description=Video Studio retention sweep (SPEC-001 R-RET-6)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Asia/Bangkok
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

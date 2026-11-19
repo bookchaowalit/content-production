@@ -6,10 +6,13 @@ const REQUIRED_FILES = Object.freeze([
   "services/video-postproduction/Dockerfile.web",
   "services/video-postproduction-api/Dockerfile",
   "services/video-postproduction-api/pyproject.toml",
+  "services/video-postproduction-api/uv.lock",
+  "services/video-postproduction-api/docker-entrypoint.sh",
   "services/video-postproduction-api/alembic.ini",
   "services/video-postproduction-api/migrations/versions/0001_v1_core.py",
   "services/video-postproduction-api/migrations/versions/0002_render_outputs.py",
   "services/video-postproduction-api/migrations/versions/0003_project_transcription_quality.py",
+  "services/video-postproduction-api/migrations/versions/0004_hosted_studio.py",
   "packages/production-trace/pyproject.toml",
   "apps/video-postproduction-web/package.json",
   "apps/video-postproduction-web/package-lock.json",
@@ -17,6 +20,11 @@ const REQUIRED_FILES = Object.freeze([
   "apps/video-postproduction-web/postcss.config.mjs",
   "apps/video-postproduction-web/tsconfig.json",
   "apps/video-postproduction-web/lib/api.ts",
+  "apps/video-postproduction-web/instrumentation.ts",
+  "apps/video-postproduction-web/server-launch.mjs",
+  "apps/video-postproduction-web/server/guard.mjs",
+  "apps/video-postproduction-web/server/launch.mjs",
+  "apps/video-postproduction-web/server/guard.d.mts",
 ]);
 
 const INCLUDED_DIRECTORIES = Object.freeze([

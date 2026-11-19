@@ -31,7 +31,7 @@ related: 00-overview.md, 02-architecture.md, 04-runbook.md
 - หน้าต่าง launcher และ Studio: `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`, `webSecurity: true`
 - preload เปิด bridge เฉพาะ `getStatus`, `start`, `recover` และ event `status`; main ตรวจว่า sender เป็น `solo-video://launcher/index.html` (`isTrustedLauncherSender`)
 - navigation จำกัดที่ Studio origin `http://127.0.0.1:3400` และหน้า launcher; URL ภายนอกที่เปิดได้มีเพียงหน้าเอกสารติดตั้ง Docker Desktop
-- CSP ของ Studio: `default-src 'self'`, `connect-src` เฉพาะ `127.0.0.1:8000`/`localhost:8000`, `object-src 'none'`, `frame-src 'none'`, `frame-ancestors 'none'`
+- CSP ของ Studio: `default-src 'self'`, `connect-src 'self'` + `127.0.0.1:8000`/`localhost:8000` (หน้าเว็บใหม่เรียก API ผ่าน proxy ของ web ตั้งแต่ SPEC-001; origin ของ API ยังอนุญาตไว้ให้ stack รุ่นเก่าใช้ได้จนกว่าจะ rebuild), `object-src 'none'`, `frame-src 'none'`, `frame-ancestors 'none'`
   (ยังอนุญาต `script-src 'unsafe-inline'` สำหรับ Next.js) และคง CSP เดิมของเซิร์ฟเวอร์ไว้เป็น header แยก
 - diagnostics ปิดค่าที่ชื่อตัวแปรมี PASSWORD/TOKEN/SECRET/KEY และตัดเหลือ 4096 ตัวอักษร
 - `stage-runtime` และ `verify-artifacts` ปฏิเสธ symlink และ path นอกโฟลเดอร์ที่กำหนด

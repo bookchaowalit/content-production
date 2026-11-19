@@ -1,0 +1,18 @@
+# Hosted Video Studio stack (SPEC-001 R-HOST). Install: /etc/systemd/system/, then `systemctl enable --now video-studio`.
+[Unit]
+Description=Video Studio (Docker Compose, Tailscale only)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=bookchaowalit
+Environment=STUDIO_HOME=/srv/video-studio
+ExecStart=/srv/video-studio/src/scripts/studio/studio.sh up
+ExecStop=/srv/video-studio/src/scripts/studio/studio.sh down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

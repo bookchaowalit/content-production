@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import re
+import shutil
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import FileResponse
 from production_trace import read_history
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from ..config import Settings
 from ..edl import EDLDocument, validate_edl
@@ -27,7 +29,7 @@ from ..models import (
     RenderOutput,
     Transcript,
 )
-from ..render.service import RenderService
+from ..render.service import RenderLimitReached, RenderService, RenderSuperseded, SourcePurged
 from ..schemas import (
     AssetListResponse,
     AssetResponse,
@@ -40,6 +42,7 @@ from ..schemas import (
     ProjectCreate,
     ProjectListResponse,
     ProjectResponse,
+    ProjectUpdate,
     RenderOutputResponse,
     RenderRequest,
     RetryRequest,
@@ -49,6 +52,7 @@ from ..schemas import (
 )
 from ..silence import SilenceCutError, silence_cut
 from ..storage.base import StorageProvider
+from ..storage.local import LocalFilesystemStorage
 from ..transcription.models import NormalizedTranscript
 from .dependencies import (
     get_job_queue,
@@ -62,13 +66,22 @@ from .dependencies import (
     require_write_access,
 )
 from .errors import APIError
+from .limits import transcription_budget, upload_disk
 from .services import (
     create_project,
     enqueue_accurate_retranscription,
     get_asset_or_error,
     get_job_or_error,
     get_project_or_error,
-    upload_asset,
+    ingest_received,
+)
+from .upload_stream import (
+    BodyTooLarge,
+    FileTooLarge,
+    MissingFilePart,
+    ReceivedFile,
+    UploadStreamError,
+    receive_file,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -84,12 +97,15 @@ def _asset_response(asset: MediaAsset) -> AssetResponse:
         status=asset.status,
         metadata=asset.metadata_json,
         created_at=asset.created_at,
+        purged_at=asset.purged_at,
     )
 
 
 def _job_response(session: Session, job: ProcessingJob) -> JobResponse:
     stages = session.scalars(select(ProcessingStage).where(ProcessingStage.job_id == job.id)).all()
-    current = next((stage for stage in stages if stage.status in {"running", "failed", "queued"}), None)
+    current = next(
+        (stage for stage in stages if stage.status in {"running", "failed", "queued"}), None
+    )
     return JobResponse(
         id=job.id,
         project_id=job.project_id,
@@ -143,10 +159,7 @@ def list_projects(
 ) -> ProjectListResponse:
     total = session.scalar(select(func.count()).select_from(Project))
     projects = session.scalars(
-        select(Project)
-        .order_by(Project.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+        select(Project).order_by(Project.created_at.desc()).offset(offset).limit(limit)
     ).all()
     return ProjectListResponse(
         items=[ProjectResponse.model_validate(project) for project in projects],
@@ -161,8 +174,22 @@ def get_transcription_capabilities(
     settings: Settings = Depends(get_settings),
 ) -> TranscriptionCapabilities:
     return TranscriptionCapabilities(
-        supports_project_quality=settings.transcription_provider == "faster_whisper"
+        supports_project_quality=settings.transcription_provider == "faster_whisper",
+        qualities=settings.allowed_qualities,
     )
+
+
+def _require_quality(settings: Settings, quality: str) -> None:
+    """SPEC-001 R-QUALITY: refuse a transcription quality this deployment does not offer."""
+
+    if quality not in settings.allowed_qualities:
+        raise APIError(
+            "quality_unavailable",
+            f"Transcription quality '{quality}' is not available here. Switch the project to one of: "
+            + ", ".join(settings.allowed_qualities)
+            + ".",
+            422,
+        )
 
 
 @router.post(
@@ -185,9 +212,43 @@ def create_project_route(
             "Per-project transcription quality is only available with the faster-whisper provider.",
             422,
         )
+    _require_quality(settings, payload.transcription_quality)
     return ProjectResponse.model_validate(
         create_project(session, payload.name, payload.instructions, payload.transcription_quality)
     )
+
+
+@router.patch(
+    "/projects/{project_id}",
+    response_model=ProjectResponse,
+    dependencies=[Depends(require_write_access)],
+)
+def update_project_route(
+    project_id: UUID,
+    payload: ProjectUpdate,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> ProjectResponse:
+    """SPEC-001 R-QUALITY: switch a project to a quality this deployment offers while it has no active job."""
+
+    # Lock the project row so a concurrent upload or retry and this switch cannot overtake each other.
+    project = session.scalar(select(Project).where(Project.id == project_id).with_for_update())
+    if project is None:
+        raise APIError("project_not_found", "The project was not found.", 404)
+    _require_quality(settings, payload.transcription_quality)
+    active = session.scalar(
+        select(ProcessingJob.id).where(
+            ProcessingJob.project_id == project_id,
+            ProcessingJob.status.in_(("queued", "running", "retry_queued")),
+        )
+    )
+    if active is not None:
+        raise APIError(
+            "project_busy", "The project has a job in progress; try again when it finishes.", 409
+        )
+    project.transcription_quality = payload.transcription_quality
+    session.commit()
+    return ProjectResponse.model_validate(project)
 
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
@@ -214,36 +275,103 @@ def retranscribe_accurately_route(
             "Accurate retranscription is only available with the faster-whisper provider.",
             422,
         )
+    _require_quality(settings, "accurate")
     job = enqueue_accurate_retranscription(session, queue, project_id, asset_id)
     return _job_response(session, job)
+
+
+# Room for multipart framing around the file part (boundaries, part headers, small form fields).
+MULTIPART_OVERHEAD_BYTES = 1024 * 1024
+
+
+def _disk_usage(path) -> tuple[int, int]:
+    usage = shutil.disk_usage(path)
+    return usage.total, usage.free
 
 
 @router.post(
     "/projects/{project_id}/assets",
     response_model=AssetUploadResponse,
     status_code=202,
-    dependencies=[Depends(require_write_access), Depends(require_transcription_budget)],
+    dependencies=[Depends(require_write_access)],
 )
-def upload_asset_route(
+async def upload_asset_route(
     project_id: UUID,
-    file: UploadFile = File(...),
+    request: Request,
     session: Session = Depends(get_session),
-    storage: StorageProvider = Depends(get_storage),
+    storage: LocalFilesystemStorage = Depends(get_storage),
     probe_reader: FFprobeMetadataReader = Depends(get_probe_reader),
     queue: JobQueue = Depends(get_job_queue),
     settings: Settings = Depends(get_settings),
 ) -> AssetUploadResponse:
-    asset, job = upload_asset(
-        session,
-        storage,
-        probe_reader,
-        queue,
-        settings,
-        project_id,
-        file.filename,
-        file.content_type,
-        file.file,
-    )
+    """Stream the body to ``STORAGE_ROOT/tmp`` after the cheap checks (SPEC-001 R-INGEST)."""
+
+    project = await run_in_threadpool(get_project_or_error, session, project_id)
+    _require_quality(settings, project.transcription_quality)
+    # Give the connection back to the pool for the (possibly long) body stream (review R8).
+    await run_in_threadpool(session.rollback)
+    raw_length = request.headers.get("content-length")
+    if raw_length is None or not raw_length.isdigit():
+        raise APIError("length_required", "The upload needs a Content-Length header.", 411)
+    length = int(raw_length)
+    max_body = settings.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
+    if length > max_body:
+        raise APIError("asset_too_large", "The uploaded file exceeds the maximum size.", 413)
+    total, free = _disk_usage(storage.root)
+    disk = upload_disk.reserve(length, free_bytes=free, total_bytes=total)
+    if disk is None:
+        raise APIError(
+            "insufficient_storage", "There is not enough free space for this upload.", 507
+        )
+    try:
+        budget = transcription_budget.reserve(limit=settings.daily_transcription_jobs)
+        if budget is None:
+            raise APIError(
+                "transcription_budget_exhausted",
+                "The daily transcription budget is used up. Try again tomorrow.",
+                429,
+            )
+        received: ReceivedFile | None = None
+        try:
+            try:
+                received = await receive_file(
+                    request.stream(),
+                    request.headers.get("content-type"),
+                    storage.temp_dir(),
+                    max_file_bytes=settings.max_upload_bytes,
+                    max_body_bytes=min(length, max_body),
+                )
+            except (FileTooLarge, BodyTooLarge) as exc:
+                raise APIError(
+                    "asset_too_large", "The uploaded file exceeds the maximum size.", 413
+                ) from exc
+            except MissingFilePart as exc:
+                raise APIError(
+                    "asset_file_required", "The upload needs a file field named 'file'.", 400
+                ) from exc
+            except UploadStreamError as exc:
+                raise APIError("invalid_upload", "The upload body could not be read.", 400) from exc
+            if not received.filename:
+                raise APIError("asset_filename_required", "A filename is required.", 400)
+            asset, job = await run_in_threadpool(
+                ingest_received,
+                session,
+                storage,
+                probe_reader,
+                queue,
+                settings,
+                project_id,
+                received,
+            )
+        except BaseException:
+            budget.release()
+            raise
+        finally:
+            if received is not None:
+                received.path.unlink(missing_ok=True)
+        budget.confirm()
+    finally:
+        disk.release()
     return AssetUploadResponse(
         asset_id=asset.id,
         job_id=job.id,
@@ -295,10 +423,17 @@ def stream_asset_route(
     storage: StorageProvider = Depends(get_storage),
 ) -> FileResponse:
     asset = get_asset_or_error(session, project_id, asset_id)
+    if asset.purged_at is not None:
+        raise APIError("media_purged", "This file was removed by the retention policy.", 410)
     path = storage.local_path(asset.storage_key)
     if not path.is_file():
         raise APIError("asset_file_not_found", "The media file is unavailable.", 404)
-    return FileResponse(path, media_type=asset.media_type, filename=asset.original_filename)
+    return FileResponse(
+        path,
+        media_type=asset.media_type,
+        filename=asset.original_filename,
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/projects/{project_id}/jobs/latest", response_model=JobResponse)
@@ -332,18 +467,57 @@ def retry_job_route(
     payload: RetryRequest | None = Body(default=None),
     session: Session = Depends(get_session),
     runner: StageRunner = Depends(get_stage_runner),
+    settings: Settings = Depends(get_settings),
+    render_service: RenderService = Depends(get_render_service),
+    queue: JobQueue = Depends(get_job_queue),
 ) -> JobResponse:
     job = get_job_or_error(session, job_id)
+    if job.kind == "render":
+        # SPEC-001 R-RERENDER: the same locked family rule as enqueueing a render.
+        try:
+            retried_render = render_service.retry(job.id, queue)
+        except RenderSuperseded as exc:
+            raise APIError(
+                "render_superseded", "A newer render of this edit exists; use that one.", 409
+            ) from exc
+        except SourcePurged as exc:
+            raise APIError(
+                "source_purged", "The source video was removed by the retention policy.", 409
+            ) from exc
+        except RuntimeError as exc:
+            raise APIError(
+                "job_queue_unavailable", "The render job could not be queued.", 503
+            ) from exc
+        except ValueError as exc:
+            raise APIError(
+                "job_not_retryable", "The requested job stage cannot be retried.", 409
+            ) from exc
+        return _job_response(session, retried_render)
     stage = payload.stage if payload is not None else "transcribe"
+    # Lock project (quality) and source (retention) rows, as PATCH /projects and the sweep do (review R9).
+    project = session.scalar(select(Project).where(Project.id == job.project_id).with_for_update())
+    if project is not None and job.kind in {"ingest", "retranscription"}:
+        _require_quality(settings, project.transcription_quality)
+        source = session.scalar(
+            select(MediaAsset).where(MediaAsset.id == job.asset_id).with_for_update()
+        )
+        if source is not None and source.purged_at is not None:
+            raise APIError(
+                "source_purged", "The source video was removed by the retention policy.", 409
+            )
     try:
         retried = runner.retry_stage(job.id, stage)
     except ValueError as exc:
-        raise APIError("job_not_retryable", "The requested job stage cannot be retried.", 409) from exc
+        raise APIError(
+            "job_not_retryable", "The requested job stage cannot be retried.", 409
+        ) from exc
     return _job_response(session, retried)
 
 
 @router.get("/projects/{project_id}/transcript", response_model=TranscriptResponse)
-def get_transcript_route(project_id: UUID, session: Session = Depends(get_session)) -> TranscriptResponse:
+def get_transcript_route(
+    project_id: UUID, session: Session = Depends(get_session)
+) -> TranscriptResponse:
     get_project_or_error(session, project_id)
     transcript = session.scalar(
         select(Transcript)
@@ -368,7 +542,9 @@ def get_transcript_route(project_id: UUID, session: Session = Depends(get_sessio
 @router.get("/projects/{project_id}/edl", response_model=EDLResponse)
 def get_edl_route(project_id: UUID, session: Session = Depends(get_session)) -> EDLResponse:
     get_project_or_error(session, project_id)
-    edl = session.scalar(select(EDL).where(EDL.project_id == project_id).order_by(EDL.version.desc()))
+    edl = session.scalar(
+        select(EDL).where(EDL.project_id == project_id).order_by(EDL.version.desc())
+    )
     if edl is None:
         raise APIError("edl_not_ready", "The edit decision list is not ready yet.", 409)
     return _edl_response(edl)
@@ -386,14 +562,20 @@ def update_edl_route(
 ) -> EDLResponse:
     get_project_or_error(session, project_id)
     if payload.project_id != project_id:
-        raise APIError("edl_project_mismatch", "The EDL project does not match the requested project.", 422)
+        raise APIError(
+            "edl_project_mismatch", "The EDL project does not match the requested project.", 422
+        )
 
     source_asset_ids = {source.asset_id for source in payload.source_assets}
     assets = session.scalars(
-        select(MediaAsset).where(MediaAsset.project_id == project_id, MediaAsset.id.in_(source_asset_ids))
+        select(MediaAsset).where(
+            MediaAsset.project_id == project_id, MediaAsset.id.in_(source_asset_ids)
+        )
     ).all()
     if len(assets) != len(source_asset_ids):
-        raise APIError("edl_asset_not_found", "The EDL references an asset outside this project.", 422)
+        raise APIError(
+            "edl_asset_not_found", "The EDL references an asset outside this project.", 422
+        )
     durations = {
         asset.id: float(asset.metadata_json["duration"])
         for asset in assets
@@ -404,8 +586,14 @@ def update_edl_route(
     except ValueError as exc:
         raise APIError("edl_invalid", "The edit decision list is invalid.", 422) from exc
 
-    current = session.scalar(select(EDL).where(EDL.project_id == project_id).order_by(EDL.version.desc()))
-    source_asset_id = current.source_asset_id if current and current.source_asset_id in source_asset_ids else next(iter(source_asset_ids))
+    current = session.scalar(
+        select(EDL).where(EDL.project_id == project_id).order_by(EDL.version.desc())
+    )
+    source_asset_id = (
+        current.source_asset_id
+        if current and current.source_asset_id in source_asset_ids
+        else next(iter(source_asset_ids))
+    )
     edl = EDL(
         project_id=project_id,
         source_asset_id=source_asset_id,
@@ -433,7 +621,9 @@ def silence_cut_route(
 
     get_project_or_error(session, project_id)
     options = payload or SilenceCutRequest()
-    current = session.scalar(select(EDL).where(EDL.project_id == project_id).order_by(EDL.version.desc()))
+    current = session.scalar(
+        select(EDL).where(EDL.project_id == project_id).order_by(EDL.version.desc())
+    )
     if current is None:
         raise APIError("edl_not_ready", "The edit decision list is not ready yet.", 409)
     transcript = session.scalar(
@@ -485,12 +675,24 @@ def enqueue_render_route(
     get_project_or_error(session, project_id)
     edl_id = payload.edl_id if payload is not None else None
     if edl_id is None:
-        latest = session.scalar(select(EDL).where(EDL.project_id == project_id).order_by(EDL.version.desc()))
+        latest = session.scalar(
+            select(EDL).where(EDL.project_id == project_id).order_by(EDL.version.desc())
+        )
         if latest is None:
             raise APIError("edl_not_ready", "The edit decision list is not ready yet.", 409)
         edl_id = latest.id
     try:
         output = render_service.enqueue(project_id, edl_id, queue)
+    except SourcePurged as exc:
+        raise APIError(
+            "source_purged", "The source video was removed by the retention policy.", 409
+        ) from exc
+    except RenderLimitReached as exc:
+        raise APIError(
+            "render_limit_reached",
+            "This edit has been rendered too many times; change the edit first.",
+            409,
+        ) from exc
     except ValueError as exc:
         raise APIError("render_request_invalid", "The render request is invalid.", 422) from exc
     except RuntimeError as exc:
@@ -506,7 +708,9 @@ def _get_render_output(session: Session, render_id: UUID) -> RenderOutput:
 
 
 @router.get("/renders/{render_id}", response_model=RenderOutputResponse)
-def get_render_route(render_id: UUID, session: Session = Depends(get_session)) -> RenderOutputResponse:
+def get_render_route(
+    render_id: UUID, session: Session = Depends(get_session)
+) -> RenderOutputResponse:
     return _render_output_response(_get_render_output(session, render_id))
 
 
@@ -518,6 +722,8 @@ def _render_file_response(
     download: bool,
 ) -> FileResponse:
     output = _get_render_output(session, render_id)
+    if output.purged_at is not None:
+        raise APIError("media_purged", "This file was removed by the retention policy.", 410)
     if output.status != "succeeded" or output.storage_key is None:
         raise APIError("render_not_ready", "The rendered video is not ready yet.", 409)
     path = storage.local_path(output.storage_key)
@@ -548,7 +754,9 @@ def download_render_route(
     return _render_file_response(render_id, session=session, storage=storage, download=True)
 
 
-_JOB_NAME = re.compile(r"^(render|export)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_JOB_NAME = re.compile(
+    r"^(render|export)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
 
 
 @router.post(
@@ -609,7 +817,15 @@ def job_file_route(
     get_project_or_error(session, project_id)
     if not _JOB_NAME.fullmatch(job_name) or filename not in JOB_FILES:
         raise APIError("job_file_not_found", "The job file was not found.", 404)
-    path = storage.local_path(f"projects/{project_id}/jobs/{job_name}/{filename}")
+    key = f"projects/{project_id}/jobs/{job_name}/{filename}"
+    purged = session.scalar(
+        select(RenderOutput.id).where(
+            RenderOutput.storage_key == key, RenderOutput.purged_at.is_not(None)
+        )
+    )
+    if purged is not None:
+        raise APIError("media_purged", "This file was removed by the retention policy.", 410)
+    path = storage.local_path(key)
     if not path.is_file():
         raise APIError("job_file_not_found", "The job file was not found.", 404)
     return FileResponse(path, media_type=media_type_for(filename), filename=filename)

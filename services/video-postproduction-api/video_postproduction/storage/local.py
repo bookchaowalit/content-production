@@ -45,6 +45,29 @@ class LocalFilesystemStorage:
 
         return self._resolve(storage_key)
 
+    def temp_dir(self) -> Path:
+        """Directory for in-progress uploads, on the same filesystem as stored objects (SPEC-001 R-INGEST)."""
+
+        path = self.root / "tmp"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def adopt(
+        self,
+        temporary: Path,
+        storage_key: str,
+        content_type: str,
+        *,
+        size_bytes: int,
+        sha256: str,
+    ) -> StoredObject:
+        """Move a finished temp file into place with one atomic rename (no second copy)."""
+
+        destination = self._resolve(storage_key)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(temporary, destination)
+        return StoredObject(storage_key=storage_key, size_bytes=size_bytes, sha256=sha256, content_type=content_type)
+
     @staticmethod
     def _iter_chunks(source: StorageSource) -> Iterator[bytes]:
         if isinstance(source, bytes):

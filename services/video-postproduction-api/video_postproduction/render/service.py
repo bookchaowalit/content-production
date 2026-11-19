@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from production_trace import MANUAL_FILENAME, TRACE_FILENAME, TraceRecorder
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..captions.ass import render_ass, render_ass_cues
@@ -50,16 +50,41 @@ from .base import RenderCapabilityError, RenderEngine, RenderProcessError
 from .ffmpeg import build_ffmpeg_argv, summarize_ffmpeg_argv
 
 
+class SourcePurged(ValueError):
+    """The EDL's source video was removed by the retention policy (SPEC-001 R-RET-5)."""
+
+
+class RenderLimitReached(ValueError):
+    """Too many renders of one EDL version (SPEC-001 R-RERENDER)."""
+
+
+class RenderSuperseded(ValueError):
+    """A newer render of the same EDL version exists, so the old job is not retried (SPEC-001 R-RERENDER)."""
+
+
 class RenderService:
     """Render an EDL to a temp artifact, validate it, then persist it atomically."""
 
-    def __init__(self, session: Session, *, storage: StorageProvider, engine: RenderEngine) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        storage: StorageProvider,
+        engine: RenderEngine,
+        max_attempts: int = 3,
+        max_family: int = 10,
+    ) -> None:
         self.session = session
         self.storage = storage
         self.engine = engine
+        # Limits on re-rendering one EDL version (SPEC-001 R-RERENDER): attempts per job and jobs per family.
+        self.max_attempts = max_attempts
+        self.max_family = max_family
 
     def _context(self, project_id: UUID, edl_id: UUID) -> tuple[EDL, MediaAsset, EDLDocument]:
-        edl_record = self.session.scalar(select(EDL).where(EDL.id == edl_id, EDL.project_id == project_id))
+        edl_record = self.session.scalar(
+            select(EDL).where(EDL.id == edl_id, EDL.project_id == project_id)
+        )
         if edl_record is None:
             raise ValueError("edit decision list not found")
         if edl_record.source_asset_id is None:
@@ -67,6 +92,8 @@ class RenderService:
         asset = self.session.get(MediaAsset, edl_record.source_asset_id)
         if asset is None:
             raise ValueError("source asset not found")
+        if asset.purged_at is not None:
+            raise SourcePurged(str(asset.id))
         return edl_record, asset, validate_edl(edl_record.document)
 
     def _transcript(self, project_id: UUID, asset_id: UUID) -> Transcript | None:
@@ -90,13 +117,13 @@ class RenderService:
         if transcript is None:
             return None
         normalized = NormalizedTranscript.model_validate(transcript.normalized_json)
-        project = self.session.get(Project, project_id)
         record_transcript(
             trace,
             provider=transcript.provider,
             model=transcript.model,
             language=transcript.language,
-            quality=project.transcription_quality if project is not None else None,
+            # The quality this transcript was made with, not the project's current setting (review R11).
+            quality=transcript.quality,
             fingerprint=transcript.content_fingerprint,
             normalized=normalized,
         )
@@ -120,11 +147,19 @@ class RenderService:
         suffix = ".ass" if segment.captions.format == "ass" else ".srt"
         if len(edl.timeline) > 1:
             with trace.step(
-                "captions", "build_burn_in_captions", format=suffix[1:], preset=segment.captions.preset,
-                clips=len(edl.timeline), cues=len(cues or []),
+                "captions",
+                "build_burn_in_captions",
+                format=suffix[1:],
+                preset=segment.captions.preset,
+                clips=len(edl.timeline),
+                cues=len(cues or []),
             ) as step:
                 content = (
-                    render_ass_cues(cues or [], segment.captions.preset, output_size=(edl.output.width, edl.output.height))
+                    render_ass_cues(
+                        cues or [],
+                        segment.captions.preset,
+                        output_size=(edl.output.width, edl.output.height),
+                    )
                     if suffix == ".ass"
                     else render_editor_srt(cues or [])
                 )
@@ -158,7 +193,9 @@ class RenderService:
             step.outputs = [path.name]
         return path
 
-    def _render_existing(self, output: RenderOutput, edl_record: EDL, asset: MediaAsset, edl: EDLDocument) -> RenderOutput:
+    def _render_existing(
+        self, output: RenderOutput, edl_record: EDL, asset: MediaAsset, edl: EDLDocument
+    ) -> RenderOutput:
         output.status = "rendering"
         output.error = None
         self.session.commit()
@@ -187,12 +224,21 @@ class RenderService:
                 capabilities=list(edl.capabilities.required),
             )
             source = SourceVideo.from_metadata(
-                asset.original_filename, asset.metadata_json, size_bytes=asset.size_bytes, sha256=asset.sha256
+                asset.original_filename,
+                asset.metadata_json,
+                size_bytes=asset.size_bytes,
+                sha256=asset.sha256,
             )
             record_source(trace, source)
-            trace.record_step("probe", "read_ingest_probe", **{k: v for k, v in source.structural().items() if k not in {"file", "sha256"}})
+            trace.record_step(
+                "probe",
+                "read_ingest_probe",
+                **{k: v for k, v in source.structural().items() if k not in {"file", "sha256"}},
+            )
             record_highlight_provenance(trace, edl)
-            with trace.step("plan", "build_timeline_plan", render_profile=edl.output.render_profile) as plan_step:
+            with trace.step(
+                "plan", "build_timeline_plan", render_profile=edl.output.render_profile
+            ) as plan_step:
                 try:
                     plan = build_timeline_plan(edl, source, title=f"Render {output.id}")
                 except TimelinePlanError as exc:
@@ -207,16 +253,24 @@ class RenderService:
             caption_path: Path | None = None
             if edl.timeline[0].captions.enabled:
                 if normalized is None:
-                    raise RenderProcessError("transcript_not_ready", "The transcript is not ready for captions")
+                    raise RenderProcessError(
+                        "transcript_not_ready", "The transcript is not ready for captions"
+                    )
                 caption_path = self._burned_caption_file(
                     edl, normalized, directory=location.job_dir, trace=trace, cues=cues
                 )
-                trace.artifact(caption_path, media_type=media_type_for(caption_path.name), role="captions")
+                trace.artifact(
+                    caption_path, media_type=media_type_for(caption_path.name), role="captions"
+                )
                 files.append(caption_path.name)
             input_path = self.storage.local_path(asset.storage_key)
             with trace.step("render", "ffmpeg_render") as render_step:
                 argv = build_ffmpeg_argv(
-                    edl, input_path=input_path, output_path=temp_output, caption_path=caption_path, plan=plan
+                    edl,
+                    input_path=input_path,
+                    output_path=temp_output,
+                    caption_path=caption_path,
+                    plan=plan,
                 )
                 render_step.params = summarize_ffmpeg_argv(argv)
                 # The plan is passed only for multi-clip timelines (single clips keep the original contract).
@@ -231,15 +285,30 @@ class RenderService:
                 render_step.outputs = [output_name]
             qa = qa_summary(
                 {
-                    "mp4_container": bool(artifact.metadata.format_name and "mp4" in artifact.metadata.format_name.split(",")),
-                    "dimensions_match": (artifact.metadata.video.width, artifact.metadata.video.height) == (plan.width, plan.height),
+                    "mp4_container": bool(
+                        artifact.metadata.format_name
+                        and "mp4" in artifact.metadata.format_name.split(",")
+                    ),
+                    "dimensions_match": (
+                        artifact.metadata.video.width,
+                        artifact.metadata.video.height,
+                    )
+                    == (plan.width, plan.height),
                     "duration_within_0_5s": abs(artifact.duration - plan.record_duration) <= 0.5,
                 }
             )
-            trace.record_step("qa", "probe_output", status=qa["status"], checks=qa["checks"], duration_s=artifact.duration)
+            trace.record_step(
+                "qa",
+                "probe_output",
+                status=qa["status"],
+                checks=qa["checks"],
+                duration_s=artifact.duration,
+            )
             with temp_output.open("rb") as rendered_file:
                 stored = self.storage.put_atomic(output_key, rendered_file, "video/mp4")
-            trace.record_step("publish", "store_render", outputs=[output_name], bytes=stored.size_bytes)
+            trace.record_step(
+                "publish", "store_render", outputs=[output_name], bytes=stored.size_bytes
+            )
             trace.artifact(location.job_dir / output_name, media_type="video/mp4", role="output")
             files.append(output_name)
             guide = build_resolve_guide(
@@ -254,11 +323,19 @@ class RenderService:
                     output=DeliveredOutput(
                         bitrate=artifact.metadata.bitrate,
                         duration=artifact.duration,
-                        audio_sample_rate=artifact.metadata.audio.sample_rate if artifact.metadata.audio else None,
+                        audio_sample_rate=artifact.metadata.audio.sample_rate
+                        if artifact.metadata.audio
+                        else None,
                     ),
                 )
             )
-            trace.finish(status="accepted", job_dir=location.job_dir, output_root=location.output_root, guide=guide, qa=qa)
+            trace.finish(
+                status="accepted",
+                job_dir=location.job_dir,
+                output_root=location.output_root,
+                guide=guide,
+                qa=qa,
+            )
             output.storage_key = stored.storage_key
             output.status = "succeeded"
             output.metadata_json = asdict(artifact.metadata) | {
@@ -268,13 +345,17 @@ class RenderService:
             self.session.commit()
             return output
         except RenderProcessError as exc:
-            self._record_failure(output, trace, location, exc.code, plan=plan, cues=cues, files=files)
+            self._record_failure(
+                output, trace, location, exc.code, plan=plan, cues=cues, files=files
+            )
             output.status = "failed"
             output.error = exc.safe_message
             self.session.commit()
             raise
         except Exception as exc:
-            self._record_failure(output, trace, location, type(exc).__name__, plan=plan, cues=cues, files=files)
+            self._record_failure(
+                output, trace, location, type(exc).__name__, plan=plan, cues=cues, files=files
+            )
             self.session.commit()
             raise
         finally:
@@ -308,7 +389,10 @@ class RenderService:
         finished = finish_failure(trace, location, code, guide=guide)
         names = [*files, TRACE_FILENAME] + ([MANUAL_FILENAME] if guide is not None else [])
         if finished is not None:
-            output.metadata_json = {**(output.metadata_json or {}), "trace": location.describe(names)}
+            output.metadata_json = {
+                **(output.metadata_json or {}),
+                "trace": location.describe(names),
+            }
 
     def render(self, project_id: UUID, edl_id: UUID, job_id: UUID | None = None) -> RenderOutput:
         """Render immediately, primarily for deterministic unit/integration workflows."""
@@ -325,20 +409,56 @@ class RenderService:
         self.session.flush()
         return self._render_existing(output, edl_record, asset, edl)
 
+    def _family(self, base_key: str) -> list[tuple[ProcessingJob, RenderOutput | None]]:
+        """Every render job of one EDL version (the base key and its ``:retry<n>`` keys), newest first."""
+
+        jobs = self.session.scalars(
+            select(ProcessingJob)
+            .where(
+                ProcessingJob.kind == "render",
+                or_(
+                    ProcessingJob.idempotency_key == base_key,
+                    ProcessingJob.idempotency_key.like(f"{base_key}:retry%"),
+                ),
+            )
+            .order_by(ProcessingJob.created_at.desc(), ProcessingJob.idempotency_key.desc())
+        ).all()
+        return [
+            (job, self.session.scalar(select(RenderOutput).where(RenderOutput.job_id == job.id)))
+            for job in jobs
+        ]
+
     def enqueue(self, project_id: UUID, edl_id: UUID, queue: JobQueue) -> RenderOutput:
-        """Persist a render job before dispatching only its stable identifiers."""
+        """Persist a render job before dispatching only its stable identifiers.
+
+        SPEC-001 R-RERENDER: the newest render of this EDL version is returned unless it failed; a failed one gets a
+        new job and render row keyed ``…:retry<n>``. The EDL row is locked so two requests create one retry.
+        """
 
         edl_record, asset, _ = self._context(project_id, edl_id)
-        idempotency_key = f"render:{asset.id}:{edl_record.id}:{edl_record.version}"
-        existing_job = self.session.scalar(
-            select(ProcessingJob).where(ProcessingJob.idempotency_key == idempotency_key)
+        # Lock order project → EDL → asset everywhere, so concurrent retries cannot deadlock (review R10).
+        self.session.execute(select(Project.id).where(Project.id == project_id).with_for_update())
+        self.session.execute(select(EDL.id).where(EDL.id == edl_record.id).with_for_update())
+        # Same row lock as the retention sweep (R-RET-3), then re-check the purge.
+        self.session.execute(
+            select(MediaAsset.id).where(MediaAsset.id == asset.id).with_for_update()
         )
-        if existing_job is not None:
-            existing_output = self.session.scalar(
-                select(RenderOutput).where(RenderOutput.job_id == existing_job.id)
-            )
-            if existing_output is not None:
-                return existing_output
+        self.session.refresh(asset)
+        if asset.purged_at is not None:
+            self.session.rollback()
+            raise SourcePurged(str(asset.id))
+        base_key = f"render:{asset.id}:{edl_record.id}:{edl_record.version}"
+        family = self._family(base_key)
+        idempotency_key = base_key
+        if family:
+            _newest_job, newest_output = family[0]
+            if newest_output is not None and newest_output.status != "failed":
+                self.session.commit()
+                return newest_output
+            if len(family) >= self.max_family:
+                self.session.rollback()
+                raise RenderLimitReached(base_key)
+            idempotency_key = f"{base_key}:retry{len(family)}"
 
         job = ProcessingJob(
             project_id=project_id,
@@ -371,6 +491,66 @@ class RenderService:
             raise RuntimeError("render job could not be queued") from exc
         return output
 
+    def retry(self, job_id: UUID, queue: JobQueue) -> ProcessingJob:
+        """Retry a failed render job in place, unless a newer render of the same EDL version exists."""
+
+        job = self.session.get(ProcessingJob, job_id)
+        if job is None or job.kind != "render":
+            raise ValueError("render job not found")
+        output = self.session.scalar(select(RenderOutput).where(RenderOutput.job_id == job.id))
+        if output is None:
+            raise ValueError("render output not found")
+        self.session.execute(
+            select(Project.id).where(Project.id == job.project_id).with_for_update()
+        )
+        self.session.execute(select(EDL.id).where(EDL.id == output.edl_id).with_for_update())
+        source = self.session.scalar(
+            select(MediaAsset)
+            .join(EDL, EDL.source_asset_id == MediaAsset.id)
+            .where(EDL.id == output.edl_id)
+            .with_for_update(of=MediaAsset)
+        )
+        if source is not None and source.purged_at is not None:
+            self.session.rollback()
+            raise SourcePurged(str(source.id))
+        base_key = job.idempotency_key.split(":retry", 1)[0]
+        newest_job, _ = self._family(base_key)[0]
+        if newest_job.id != job.id:
+            self.session.rollback()
+            raise RenderSuperseded(str(newest_job.id))
+        stage = self.session.scalar(
+            select(ProcessingStage).where(
+                ProcessingStage.job_id == job.id, ProcessingStage.name == "render"
+            )
+        )
+        if stage is None or stage.status != "failed":
+            self.session.rollback()
+            raise ValueError("only failed render jobs can be retried")
+        if stage.attempt >= self.max_attempts:
+            self.session.rollback()
+            raise ValueError("render retry limit reached")
+        stage.status = "queued"
+        stage.error_code = None
+        stage.error_message = None
+        job.status = "retry_queued"
+        job.error_code = None
+        job.error_message = None
+        output.status = "queued"
+        output.error = None
+        self.session.commit()
+        try:
+            queue.enqueue(job.id, "render")
+        except Exception as exc:
+            stage.status = "failed"
+            job.status = "failed"
+            job.error_code = "queue_error"
+            job.error_message = "The render job could not be queued."
+            output.status = "failed"
+            output.error = "The render job could not be queued."
+            self.session.commit()
+            raise RuntimeError("render job could not be queued") from exc
+        return job
+
     def run_job(self, job_id: UUID) -> RenderOutput:
         """Execute a queued render job from a worker task."""
 
@@ -396,7 +576,20 @@ class RenderService:
         if stage.status == "running":
             self.session.commit()
             return output
-        edl_record, asset, edl = self._context(job.project_id, output.edl_id)
+        try:
+            edl_record, asset, edl = self._context(job.project_id, output.edl_id)
+        except SourcePurged:
+            # SPEC-001 R-RET-5: the source was purged after this render was queued.
+            stage.status = "failed"
+            stage.error_code = "source_purged"
+            stage.error_message = "The source video was removed by the retention policy."
+            job.status = "failed"
+            job.error_code = "source_purged"
+            job.error_message = stage.error_message
+            output.status = "failed"
+            output.error = stage.error_message
+            self.session.commit()
+            return output
         stage.status = "running"
         stage.attempt += 1
         job.status = "running"

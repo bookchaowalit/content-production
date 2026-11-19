@@ -458,3 +458,15 @@ test("preflight failures do not probe or mutate the runtime", async () => {
   assert.equal(fake.probeCalls, 0);
   assert.deepEqual(fake.composeWrites, []);
 });
+
+test("recover stops the old worker before rebuilding (SPEC-001 R-UPGRADE)", async () => {
+  const fake = createFakeRuntime({ probeResults: [healthy] });
+  await new RuntimeManager(fake.dependencies).recover();
+
+  const stopIndex = fake.composeWrites.findIndex((args) => args.includes("stop") && args.includes("worker"));
+  const upIndex = fake.composeWrites.findIndex((args) => args.includes("up") && args.includes("--build"));
+  assert.ok(stopIndex >= 0, "worker is stopped");
+  assert.ok(stopIndex < upIndex, "before the rebuild");
+  // The CLI must outlive the 30 min graceful stop, or the warm shutdown is cut short (review R11).
+  assert.ok((fake.composeOptions[stopIndex].timeoutMs ?? 0) > 1800 * 1000, "stop gets more than 30 min");
+});

@@ -4,6 +4,8 @@ const STUDIO_CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
+  // Same-origin /api/v1 since SPEC-001; the loopback API origin stays allowed so a stack started by an older
+  // release keeps working in this shell until it is rebuilt (review R9).
   "img-src 'self' data: blob: http://127.0.0.1:8000 http://localhost:8000",
   "media-src 'self' blob: http://127.0.0.1:8000 http://localhost:8000",
   "font-src 'self' data:",

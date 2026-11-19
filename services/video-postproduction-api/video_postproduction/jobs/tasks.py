@@ -5,9 +5,11 @@ from __future__ import annotations
 from uuid import UUID
 
 from celery import Celery  # type: ignore[import-untyped]
+from celery.signals import worker_init, worker_process_init  # type: ignore[import-untyped]
 
 from ..config import get_settings
 from ..db import SessionLocal
+from ..error_reporting import init_error_reporting
 from ..media.ffprobe import FFprobeMetadataReader
 from ..models import ProcessingJob, Project
 from ..render.ffmpeg import FFmpegRenderEngine
@@ -40,6 +42,23 @@ def _provider(transcription_quality: str = "fast"):
     raise ValueError(f"unsupported transcription provider: {current.transcription_provider}")
 
 
+@worker_init.connect
+def on_worker_init(**_kwargs: object) -> None:
+    """SPEC-001 R-SCHEMA-WAIT: do not consume the queue before the API has migrated the database."""
+
+    from ..migrate import wait_for_schema
+
+    if wait_for_schema() != "ready":
+        raise SystemExit("database schema is not ready for this worker")
+
+
+@worker_process_init.connect
+def on_worker_process_init(**_kwargs: object) -> None:
+    """SPEC-001 R-OBS-3: the worker reports errors to Sentry with the same scrubber as the API."""
+
+    init_error_reporting()
+
+
 @celery_app.task(name="video_postproduction.jobs.tasks.run_stage")
 def run_stage(job_id: str, stage_name: str) -> None:
     """Run one stage using a new database session for each task invocation."""
@@ -56,6 +75,7 @@ def run_stage(job_id: str, stage_name: str) -> None:
             transcription_provider=_provider(transcription_quality),
             settings=current,
             queue=CeleryJobQueue(celery_app),
+            transcription_quality=transcription_quality,
         )
         if stage_name == "probe":
             runner.run_probe(UUID(job_id))
@@ -69,6 +89,7 @@ def run_stage(job_id: str, stage_name: str) -> None:
                     current.ffmpeg_executable,
                     probe_reader=FFprobeMetadataReader(current.ffprobe_executable),
                 ),
+                max_attempts=current.max_stage_attempts,
             )
             render_service.run_job(UUID(job_id))
         else:

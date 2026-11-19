@@ -1,0 +1,10 @@
+[Unit]
+Description=Video Studio pg_dump + restic to R2 (SPEC-001 R-BAK-1)
+
+[Timer]
+OnCalendar=*-*-* 02:45:00 Asia/Bangkok
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

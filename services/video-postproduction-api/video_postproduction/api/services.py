@@ -2,23 +2,27 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
+import logging
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..config import Settings
 from ..jobs.queue import JobQueue
 from ..media.ffprobe import FFprobeMetadataReader, MediaProbeError
-from ..media.validation import UploadValidationError, stream_upload, validate_media_type
+from ..media.validation import UploadValidationError, validate_media_type
 from ..models import MediaAsset, ProcessingJob, ProcessingStage, Project, Transcript
-from ..storage.base import StoragePathError, StorageProvider
+from ..storage.base import StoragePathError
+from ..storage.local import LocalFilesystemStorage
 from .errors import APIError
+from .upload_stream import ReceivedFile
+
+logger = logging.getLogger(__name__)
 
 
 def create_project(
@@ -46,8 +50,18 @@ def enqueue_accurate_retranscription(
 ) -> ProcessingJob:
     project = get_project_or_error(session, project_id)
     asset = get_asset_or_error(session, project_id, asset_id)
+    # Lock order project → asset everywhere (review R10); the asset lock is the one the retention sweep takes.
+    session.execute(select(Project.id).where(Project.id == project_id).with_for_update())
+    session.execute(select(MediaAsset.id).where(MediaAsset.id == asset.id).with_for_update())
+    session.refresh(asset)
+    if asset.purged_at is not None:
+        raise APIError(
+            "source_purged", "The source video was removed by the retention policy.", 409
+        )
     if project.transcription_quality != "fast":
-        raise APIError("transcription_not_fast", "The project is not using fast transcription.", 409)
+        raise APIError(
+            "transcription_not_fast", "The project is not using fast transcription.", 409
+        )
     if asset.status != "transcribed":
         raise APIError("transcript_not_ready", "The asset does not have a ready transcript.", 409)
     transcript = session.scalar(
@@ -56,7 +70,9 @@ def enqueue_accurate_retranscription(
         .order_by(Transcript.created_at.desc())
     )
     if transcript is None or transcript.provider != "faster_whisper" or transcript.model != "small":
-        raise APIError("fast_transcript_not_found", "The asset has no fast Whisper transcript to improve.", 409)
+        raise APIError(
+            "fast_transcript_not_found", "The asset has no fast Whisper transcript to improve.", 409
+        )
 
     active_job = session.scalar(
         select(ProcessingJob).where(
@@ -67,10 +83,10 @@ def enqueue_accurate_retranscription(
         )
     )
     if active_job is not None:
-        raise APIError("transcription_in_progress", "A transcription job is already in progress.", 409)
+        raise APIError(
+            "transcription_in_progress", "A transcription job is already in progress.", 409
+        )
 
-    previous_quality = project.transcription_quality
-    previous_status = project.status
     job = ProcessingJob(
         project_id=project_id,
         asset_id=asset_id,
@@ -84,16 +100,19 @@ def enqueue_accurate_retranscription(
     project.transcription_quality = "accurate"
     project.status = "processing"
     session.commit()
+    stage = session.scalar(
+        select(ProcessingStage).where(
+            ProcessingStage.job_id == job.id, ProcessingStage.name == "transcribe"
+        )
+    )
     try:
         queue.enqueue(job.id, "transcribe")
-    except Exception as exc:
-        job.status = "failed"
-        job.error_code = "queue_error"
-        job.error_message = "The transcription job could not be queued."
-        project.transcription_quality = previous_quality
-        project.status = previous_status
+    except Exception:  # noqa: BLE001 - SPEC-001 R-QUEUE: recover_jobs re-sends a queued stage
+        logger.warning("enqueue of transcribe for job %s failed; recovery will resend it", job.id)
+        return job
+    if stage is not None:
+        stage.enqueued_at = datetime.now(UTC)
         session.commit()
-        raise APIError("job_queue_unavailable", "The transcription job could not be queued.", 503) from exc
     return job
 
 
@@ -120,53 +139,67 @@ def get_job_or_error(session: Session, job_id: UUID) -> ProcessingJob:
     return job
 
 
-def upload_asset(
+def ingest_received(
     session: Session,
-    storage: StorageProvider,
+    storage: LocalFilesystemStorage,
     probe_reader: FFprobeMetadataReader,
     queue: JobQueue,
     settings: Settings,
     project_id: UUID,
-    filename: str | None,
-    content_type: str | None,
-    source: BinaryIO,
+    received: ReceivedFile,
 ) -> tuple[MediaAsset, ProcessingJob]:
-    get_project_or_error(session, project_id)
-    if filename is None:
-        raise APIError("asset_filename_required", "A filename is required.", 400)
+    """Turn a streamed upload into an asset and an ingest job (SPEC-001 R-INGEST, R-QUEUE).
+
+    The temp file is renamed into place (one copy), probed, and only then are rows written, in one transaction:
+    asset, job, ``probe`` queued and ``transcribe`` blocked. A failed enqueue leaves ``probe`` queued with no
+    ``enqueued_at`` for recovery; the upload still succeeds.
+    """
+
+    # Lock the project row: quality is re-checked here and PATCH /projects/{id} takes the same lock.
+    project = session.scalar(select(Project).where(Project.id == project_id).with_for_update())
+    if project is None:
+        raise APIError("project_not_found", "The project was not found.", 404)
+    if project.transcription_quality not in settings.allowed_qualities:
+        raise APIError(
+            "quality_unavailable", "The project's transcription quality is not available here.", 422
+        )
     try:
-        normalized_type = validate_media_type(content_type, filename, settings.allowed_mime_types)
+        normalized_type = validate_media_type(
+            received.content_type, received.filename, settings.allowed_mime_types
+        )
     except UploadValidationError as exc:
-        raise APIError("asset_type_not_supported", "The uploaded file type is not supported.", 415) from exc
+        raise APIError(
+            "asset_type_not_supported", "The uploaded file type is not supported.", 415
+        ) from exc
 
-    suffix = Path(filename).suffix.lower()
     asset_id = uuid4()
-    storage_key = f"projects/{project_id}/original/{asset_id}{suffix}"
-    temporary_path: Path | None = None
-    stored = None
+    storage_key = (
+        f"projects/{project_id}/original/{asset_id}{Path(received.filename).suffix.lower()}"
+    )
     try:
-        with tempfile.NamedTemporaryFile(mode="w+b", prefix="video-upload-", suffix=suffix, delete=False) as temporary:
-            temporary_path = Path(temporary.name)
-            try:
-                stream_upload(source, temporary, settings.max_upload_bytes)
-            except UploadValidationError as exc:
-                raise APIError("asset_too_large", "The uploaded file exceeds the maximum size.", 413) from exc
-            temporary.flush()
-            os.fsync(temporary.fileno())
-
-        with temporary_path.open("rb") as temporary_source:
-            stored = storage.put_atomic(storage_key, temporary_source, normalized_type)
+        stored = storage.adopt(
+            received.path,
+            storage_key,
+            normalized_type,
+            size_bytes=received.size_bytes,
+            sha256=received.sha256,
+        )
+    except (OSError, StoragePathError) as exc:
+        raise APIError(
+            "asset_storage_error", "The uploaded file could not be stored.", 500
+        ) from exc
+    try:
         try:
             metadata = probe_reader.read(storage.local_path(storage_key))
         except MediaProbeError as exc:
-            storage.delete(storage_key)
-            raise APIError("asset_not_readable", "The uploaded file is not a readable video.", 422) from exc
-
+            raise APIError(
+                "asset_not_readable", "The uploaded file is not a readable video.", 422
+            ) from exc
         asset = MediaAsset(
             id=asset_id,
             project_id=project_id,
             storage_key=stored.storage_key,
-            original_filename=filename,
+            original_filename=received.filename,
             media_type=normalized_type,
             size_bytes=stored.size_bytes,
             sha256=stored.sha256,
@@ -183,24 +216,27 @@ def upload_asset(
         session.add(asset)
         session.add(job)
         session.flush()
-        session.add(ProcessingStage(job_id=job.id, name="probe", status="queued"))
-        session.add(ProcessingStage(job_id=job.id, name="transcribe", status="queued"))
+        probe = ProcessingStage(job_id=job.id, name="probe", status="queued")
+        session.add(probe)
+        session.add(ProcessingStage(job_id=job.id, name="transcribe", status="blocked"))
         session.commit()
-        try:
-            queue.enqueue(job.id, "probe")
-        except Exception as exc:
-            job.status = "failed"
-            job.error_code = "queue_error"
-            job.error_message = "The processing job could not be queued."
-            session.commit()
-            raise APIError("job_queue_unavailable", "The processing job could not be queued.", 503) from exc
-        return asset, job
-    except APIError:
+    except BaseException:
+        session.rollback()
+        storage.delete(storage_key)
         raise
-    except (OSError, StoragePathError) as exc:
-        if stored is not None:
-            storage.delete(storage_key)
-        raise APIError("asset_storage_error", "The uploaded file could not be stored.", 500) from exc
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+    try:
+        queue.enqueue(job.id, "probe")
+    except Exception:  # noqa: BLE001 - recover_jobs re-sends a queued stage without enqueued_at
+        logger.warning("enqueue of probe for job %s failed; recovery will resend it", job.id)
+    else:
+        # Best effort: the upload is already committed; recovery treats a missing enqueued_at as unsent and a
+        # duplicate message is a no-op (claim needs `queued`), so a failure here must not fail the upload.
+        try:
+            probe.enqueued_at = datetime.now(UTC)
+            session.commit()
+        except SQLAlchemyError:
+            session.rollback()
+            logger.warning(
+                "could not record enqueued_at for job %s; recovery may resend it", job.id
+            )
+    return asset, job

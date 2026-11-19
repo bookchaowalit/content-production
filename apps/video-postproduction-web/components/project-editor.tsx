@@ -21,12 +21,14 @@ import {
   retranscribeAccurately,
   retryJob,
   updateEDL,
+  updateProjectQuality,
   type Asset,
   type EDL,
   type Job,
   type Project,
   type RenderOutput,
   type Transcript,
+  type TranscriptionQuality,
 } from "@/lib/api";
 import {OUTPUT_FORMATS, outputFormatFromDocument, outputFormatPatch, type OutputFormat} from "@/lib/output-format";
 import {rangeEndingAt, rangeStartingAt, type TimeSpan} from "@/lib/transcript-range";
@@ -71,12 +73,19 @@ export function ProjectEditor({projectId, assetId, jobId}: ProjectEditorProps) {
   const [qualityCapabilities, setQualityCapabilities] = useState<{
     projectId: string;
     supported: boolean;
+    qualities: TranscriptionQuality[];
   } | null>(null);
+  const [switchingQuality, setSwitchingQuality] = useState(false);
   assetIdRef.current = asset?.id;
   const supportsProjectQuality =
     qualityCapabilities?.projectId === projectId && qualityCapabilities.supported;
+  const offeredQualities = qualityCapabilities?.projectId === projectId ? qualityCapabilities.qualities : null;
+  // SPEC-001 R-QUALITY: an old project may use a quality this deployment no longer offers.
+  const qualityUnavailable =
+    offeredQualities !== null && project !== null && !offeredQualities.includes(project.transcription_quality);
   const canRetranscribeAccurately =
     supportsProjectQuality &&
+    offeredQualities?.includes("accurate") === true &&
     project?.transcription_quality === "fast" &&
     transcript?.provider === "faster_whisper" &&
     transcript.model === "small" &&
@@ -87,14 +96,14 @@ export function ProjectEditor({projectId, assetId, jobId}: ProjectEditorProps) {
     let active = true;
     setQualityCapabilities(null);
     getTranscriptionCapabilities()
-      .then(({supports_project_quality}) => {
+      .then(({supports_project_quality, qualities}) => {
         if (active) {
-          setQualityCapabilities({projectId, supported: supports_project_quality});
+          setQualityCapabilities({projectId, supported: supports_project_quality, qualities});
         }
       })
       .catch((cause: unknown) => {
         if (!active) return;
-        setQualityCapabilities({projectId, supported: false});
+        setQualityCapabilities({projectId, supported: false, qualities: []});
         setError(
           cause instanceof APIClientError
             ? cause.message
@@ -276,6 +285,19 @@ export function ProjectEditor({projectId, assetId, jobId}: ProjectEditorProps) {
     }
   }
 
+  async function switchToOfferedQuality() {
+    if (offeredQualities === null || offeredQualities.length === 0 || project === null) return;
+    setSwitchingQuality(true);
+    setError(null);
+    try {
+      setProject(await updateProjectQuality(projectId, offeredQualities[0]));
+    } catch (cause: unknown) {
+      setError(cause instanceof APIClientError ? cause.message : "เปลี่ยนคุณภาพการถอดเสียงไม่สำเร็จ");
+    } finally {
+      setSwitchingQuality(false);
+    }
+  }
+
   async function retranscribeAccuratelyAction() {
     if (!asset || !project || !transcript || transcript.asset_id !== asset.id) return;
     setRetranscribingAccurately(true);
@@ -353,7 +375,11 @@ export function ProjectEditor({projectId, assetId, jobId}: ProjectEditorProps) {
         </div>
         {asset ? (
           <Card className="video-card">
-            <video ref={videoRef} controls preload="metadata" src={getAssetStreamURL(projectId, asset.id)} />
+            {asset.purged_at ? (
+              <p className="notice" role="status">ไฟล์ถูกลบตามระยะเก็บแล้ว — ไฟล์ต้นฉบับเก็บไว้ 30 วัน ข้อมูลโปรเจกต์ transcript และ EDL ยังอยู่</p>
+            ) : (
+              <video ref={videoRef} controls preload="metadata" src={getAssetStreamURL(projectId, asset.id)} />
+            )}
             <div className="video-meta">
               <div><span className="eyebrow">Source</span><strong>{asset.original_filename}</strong></div>
               <div><span className="eyebrow">Status</span><strong>{asset.status}</strong></div>
@@ -376,6 +402,14 @@ export function ProjectEditor({projectId, assetId, jobId}: ProjectEditorProps) {
         />
       </div>
       <aside className="editor-sidebar">
+        {qualityUnavailable && offeredQualities !== null && offeredQualities.length > 0 && (
+          <Card className="notice-card" role="status">
+            <p>โปรเจกต์นี้ตั้งคุณภาพการถอดเสียงที่ระบบนี้ไม่เปิดให้ใช้ จึงอัปโหลดหรือถอดเสียงซ้ำไม่ได้</p>
+            <Button disabled={switchingQuality} onClick={switchToOfferedQuality} type="button">
+              {switchingQuality ? "กำลังเปลี่ยน…" : `เปลี่ยนเป็น ${offeredQualities[0]}`}
+            </Button>
+          </Card>
+        )}
         <JobProgress job={job} onRetry={retry} retrying={retrying} />
         {error && <p className="form-error" role="alert">{error}</p>}
         <Card className="control-card">

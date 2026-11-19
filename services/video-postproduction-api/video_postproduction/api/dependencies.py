@@ -50,8 +50,10 @@ def get_render_service(
     session: Session = Depends(get_session),
     storage: StorageProvider = Depends(get_storage),
     render_engine: FFmpegRenderEngine = Depends(get_render_engine),
+    settings: Settings = Depends(get_settings),
 ) -> RenderService:
-    return RenderService(session, storage=storage, engine=render_engine)
+    # Same attempt cap as the worker and recovery (review R11).
+    return RenderService(session, storage=storage, engine=render_engine, max_attempts=settings.max_stage_attempts)
 
 
 def get_job_queue() -> JobQueue:

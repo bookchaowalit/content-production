@@ -19,6 +19,11 @@ class ProjectCreate(BaseModel):
 
 class TranscriptionCapabilities(BaseModel):
     supports_project_quality: bool
+    qualities: list[str] = Field(default_factory=list)
+
+
+class ProjectUpdate(BaseModel):
+    transcription_quality: TranscriptionQuality
 
 
 class ProjectResponse(BaseModel):
@@ -51,6 +56,8 @@ class AssetResponse(BaseModel):
     status: str
     metadata: dict[str, Any]
     created_at: datetime
+    # SPEC-001 R-RET-5: set when the retention policy removed the file; the editor shows a notice.
+    purged_at: datetime | None = None
 
 
 class AssetListResponse(BaseModel):

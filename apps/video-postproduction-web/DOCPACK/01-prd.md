@@ -70,7 +70,7 @@ related: 00-overview.md, 02-architecture.md, 03-nfr-security.md, 04-runbook.md
 ## ข้อสมมติฐานและความเสี่ยง
 
 - **[สมมติฐาน]** ผู้ใช้คนเดียวบนเครื่องเดียว ไม่ต้องมีการยืนยันตัวตน
-- R-01: `NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN` ถูกฝังตอน build การเปลี่ยน API origin ต้อง build ใหม่
+- R-01: (แก้แล้วใน SPEC-001) เบราว์เซอร์เรียก `/api/v1` แบบ relative เท่านั้น web server เป็น proxy ไปที่ `VIDEO_POSTPRODUCTION_API_INTERNAL_URL` และใส่ API token ฝั่ง server จึงไม่ต้อง build ใหม่เมื่อเปลี่ยน API
 - R-02: การถอดเสียงครั้งแรกอาจดาวน์โหลดโมเดล ใช้เวลานาน (smoke timeout ค่าเริ่มต้น 90 นาที)
 - R-03: เอกสาร V1B ระบุเฉพาะ 9:16 แต่เว็บรองรับ 16:9 แล้ว — README runtime อาจล้าสมัย **[ต้องยืนยัน]**
 

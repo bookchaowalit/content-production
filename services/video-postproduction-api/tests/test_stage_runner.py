@@ -6,7 +6,7 @@ from pathlib import Path
 
 from video_postproduction.config import Settings
 from video_postproduction.jobs.queue import InlineJobQueue
-from video_postproduction.jobs.recovery import recover_stale_jobs
+from video_postproduction.jobs.recovery import recover_jobs
 from video_postproduction.jobs.stages import StageRunner
 from video_postproduction.media.models import MediaMetadata, VideoStreamMetadata
 from video_postproduction.models import MediaAsset, ProcessingJob, ProcessingStage, Project
@@ -85,7 +85,9 @@ def make_asset(session, tmp_path: Path):
     return project, asset, storage
 
 
-def make_job(session, asset: MediaAsset) -> ProcessingJob:
+def make_job(session, asset: MediaAsset, *, probed: bool = False) -> ProcessingJob:
+    """An ingest job; ``probed=True`` gives one that is ready for transcription (SPEC-001 R-QUEUE)."""
+
     job = ProcessingJob(
         project_id=asset.project_id,
         asset_id=asset.id,
@@ -95,15 +97,15 @@ def make_job(session, asset: MediaAsset) -> ProcessingJob:
     )
     session.add(job)
     session.flush()
-    session.add(ProcessingStage(job_id=job.id, name="probe", status="queued"))
-    session.add(ProcessingStage(job_id=job.id, name="transcribe", status="queued"))
+    session.add(ProcessingStage(job_id=job.id, name="probe", status="succeeded" if probed else "queued"))
+    session.add(ProcessingStage(job_id=job.id, name="transcribe", status="queued" if probed else "blocked"))
     session.commit()
     return job
 
 
 def test_failed_stage_records_safe_error_and_can_retry(session, tmp_path):
     _, asset, storage = make_asset(session, tmp_path)
-    job = make_job(session, asset)
+    job = make_job(session, asset, probed=True)
     runner = StageRunner(
         session,
         storage=storage,
@@ -120,7 +122,7 @@ def test_failed_stage_records_safe_error_and_can_retry(session, tmp_path):
     assert failed.error_message == "Provider unavailable"
 
     retry_job = runner.retry_stage(job.id, "transcribe")
-    assert retry_job.status == "queued"
+    assert retry_job.status == "retry_queued"
     assert failed.status == "queued"
 
 
@@ -131,7 +133,7 @@ class InvalidTranscriptProvider:
 
 def test_invalid_provider_transcript_reports_specific_safe_error(session, tmp_path, caplog):
     _, asset, storage = make_asset(session, tmp_path)
-    job = make_job(session, asset)
+    job = make_job(session, asset, probed=True)
     runner = StageRunner(
         session,
         storage=storage,
@@ -179,7 +181,7 @@ def test_transcription_passes_configured_language_to_provider(session, tmp_path)
     asset.metadata_json = asdict(media_metadata())
     asset.status = "probed"
     session.commit()
-    job = make_job(session, asset)
+    job = make_job(session, asset, probed=True)
     provider = LanguageRecordingProvider()
     runner = StageRunner(
         session,
@@ -217,7 +219,7 @@ def test_recover_stale_running_job(session, tmp_path):
     session.add(stage)
     session.commit()
 
-    recovered = recover_stale_jobs(session, Settings(job_lease_seconds=10))
+    recovered = recover_jobs(session, Settings(stage_lease_timeout_seconds=10), None)
 
     assert recovered == 1
     session.refresh(job)
@@ -237,7 +239,7 @@ def test_unexpected_stage_failure_is_reported_to_sentry(session, tmp_path, monke
     reported: list[BaseException] = []
     monkeypatch.setattr("video_postproduction.jobs.stages.report_exception", reported.append)
     _, asset, storage = make_asset(session, tmp_path)
-    job = make_job(session, asset)
+    job = make_job(session, asset, probed=True)
     runner = StageRunner(
         session,
         storage=storage,

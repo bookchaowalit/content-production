@@ -21,7 +21,11 @@ export interface ProjectListResponse {
 
 export interface TranscriptionCapabilities {
   supports_project_quality: boolean;
+  /** Qualities this deployment offers (SPEC-001 R-QUALITY); hosted runs offer only "fast". */
+  qualities: TranscriptionQuality[];
 }
+
+const ALL_QUALITIES: TranscriptionQuality[] = ["fast", "accurate"];
 
 export interface CreateProjectRequest {
   name: string;
@@ -38,6 +42,8 @@ export interface Asset {
   status: string;
   metadata: Record<string, unknown>;
   created_at: string;
+  /** Set when the retention policy removed the file (SPEC-001 R-RET-5). */
+  purged_at?: string | null;
 }
 
 export interface AssetListResponse {
@@ -149,12 +155,9 @@ export class APIClientError extends Error {
 
 type Fetcher = typeof fetch;
 
-const API_ORIGIN = process.env.NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN ?? "http://127.0.0.1:8000";
-
-const apiURL = (path: string): string =>
-  path.startsWith("http://") || path.startsWith("https://")
-    ? path
-    : `${API_ORIGIN.replace(/\/$/, "")}${path}`;
+// SPEC-001 R-PROXY-7: the browser talks only to the studio origin; the web server proxies /api/v1 to the API
+// and adds the API token there. No API origin or token is ever built into the client bundle.
+const apiURL = (path: string): string => path;
 
 async function parseJSON<T>(response: Response): Promise<T> {
   const text = await response.text();
@@ -212,7 +215,9 @@ export function getTranscriptionCapabilities(
         200,
       );
     }
-    return {supports_project_quality: payload.supports_project_quality};
+    const raw = "qualities" in payload && Array.isArray(payload.qualities) ? payload.qualities : ALL_QUALITIES;
+    const qualities = raw.filter((value): value is TranscriptionQuality => ALL_QUALITIES.includes(value as TranscriptionQuality));
+    return {supports_project_quality: payload.supports_project_quality, qualities};
   });
 }
 
@@ -224,6 +229,18 @@ export function createProject(
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify(payload),
+  }, fetcher);
+}
+
+export function updateProjectQuality(
+  projectId: string,
+  transcriptionQuality: TranscriptionQuality,
+  fetcher: Fetcher = fetch,
+): Promise<Project> {
+  return request<Project>(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+    method: "PATCH",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({transcription_quality: transcriptionQuality}),
   }, fetcher);
 }
 

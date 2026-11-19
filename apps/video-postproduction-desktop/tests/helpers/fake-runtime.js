@@ -48,6 +48,8 @@ function createFakeRuntime({
   let snapshotIndex = 0;
   let probeIndex = 0;
   let composeIndex = 0;
+  /** @type {{ timeoutMs?: number }[]} */
+  const composeOptions = [];
   let preflightCalls = 0;
   let inspectCalls = 0;
   let probeCalls = 0;
@@ -59,8 +61,9 @@ function createFakeRuntime({
         if (preflightResult instanceof Error) throw preflightResult;
         return preflightResult;
       },
-      run: async (/** @type {string[]} */ args, /** @type {{ timeoutMs?: number }} */ _options = {}) => {
+      run: async (/** @type {string[]} */ args, /** @type {{ timeoutMs?: number }} */ options = {}) => {
         composeWrites.push([...args]);
+        composeOptions.push({ ...options });
         const result = compose[Math.min(composeIndex, compose.length - 1)] ?? { exitCode: 0, stdout: "", stderr: "" };
         composeIndex += 1;
         if (result instanceof Error) throw result;
@@ -98,6 +101,7 @@ function createFakeRuntime({
   return {
     dependencies,
     composeWrites,
+    composeOptions,
     publishedStatuses,
     get preflightCalls() { return preflightCalls; },
     get inspectCalls() { return inspectCalls; },

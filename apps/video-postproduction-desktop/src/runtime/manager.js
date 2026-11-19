@@ -6,6 +6,9 @@ const { API_ORIGIN, PROJECT_NAME, SERVICE_NAMES, WEB_ORIGIN } = require("./const
 const FIRST_START_TIMEOUT_MS = 15 * 60 * 1000;
 const HEALTH_POLL_INTERVAL_MS = 2000;
 const COMMAND_TIMEOUT_MS = 30_000;
+// Worker graceful stop (Celery warm shutdown) and the CLI budget around it (review R11).
+const WORKER_STOP_SECONDS = 1800;
+const WORKER_STOP_CLI_TIMEOUT_MS = (WORKER_STOP_SECONDS + 120) * 1000;
 const INVALID_COMPOSE_SNAPSHOT_MESSAGES = new Set([
   "invalid Compose status output",
   "unexpected Compose service",
@@ -263,10 +266,10 @@ class RuntimeManager {
     return composeArgs(this.paths, this.projectName, subcommandArgs);
   }
 
-  /** @param {string[]} subcommandArgs @returns {Promise<RuntimeCode | null>} */
-  async runCompose(subcommandArgs) {
+  /** @param {string[]} subcommandArgs @param {{ timeoutMs?: number }} [options] @returns {Promise<RuntimeCode | null>} */
+  async runCompose(subcommandArgs, { timeoutMs = this.commandTimeoutMs } = {}) {
     try {
-      const result = await this.dockerCli.run(this.composeCommand(subcommandArgs), { timeoutMs: this.commandTimeoutMs });
+      const result = await this.dockerCli.run(this.composeCommand(subcommandArgs), { timeoutMs });
       if (result.exitCode === 0) return null;
       return isKnownPortBindFailure(`${result.stdout}\n${result.stderr}`) ? "port-conflict" : "compose-failed";
     } catch (error) {
@@ -338,6 +341,12 @@ class RuntimeManager {
     }
 
     await this.publish(createStatus("starting", null, null, "กำลังสร้างและกู้คืน Video Studio", status.services));
+    // SPEC-001 R-UPGRADE: an old worker must not hand off stages while the new API migrates the database.
+    // Give a running render or transcription time to finish (Celery warm shutdown), as studio.sh update does.
+    const stopError = await this.runCompose(["stop", "--timeout", String(WORKER_STOP_SECONDS), "worker"], {
+      timeoutMs: WORKER_STOP_CLI_TIMEOUT_MS,
+    });
+    if (stopError) return this.finishComposeFailure(status, stopError);
     const errorCode = await this.runCompose(["up", "--detach", "--build"]);
     if (errorCode) return this.finishComposeFailure(status, errorCode);
     status = await this.waitForHealthy(status.services);

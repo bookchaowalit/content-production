@@ -1,0 +1,8 @@
+# Runs on beelink (owner tailnet node), not on the studio host (SPEC-001 R-OBS-2).
+[Unit]
+Description=Video Studio real-path health probe over the tailnet
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/video-studio/health.env
+ExecStart=/usr/local/bin/video-studio-health-probe

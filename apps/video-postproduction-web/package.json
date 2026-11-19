@@ -13,7 +13,7 @@
     "test:browser": "node tests/browser-smoke.mjs"
   },
   "dependencies": {
-    "next": "16.4.2",
+    "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
@@ -21,6 +21,7 @@
     "@types/node": "^26.6.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitest/coverage-v8": "5.0.5",
     "playwright": "1.63.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
