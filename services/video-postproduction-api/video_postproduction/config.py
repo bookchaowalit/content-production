@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     # lets recovery take the stage over.
     stage_heartbeat_seconds: int = Field(default=60, ge=0)
     stage_lease_timeout_seconds: int = Field(default=180, gt=0)
+    # recover_jobs runs at API start and then this often; 0 turns the loop off (tests, one-off commands).
+    job_recovery_interval_seconds: int = Field(default=300, ge=0)
     max_stage_attempts: int = Field(default=3, ge=1, le=10)
 
     @field_validator("transcription_language", mode="before")
