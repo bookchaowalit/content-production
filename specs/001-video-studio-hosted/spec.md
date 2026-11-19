@@ -6,8 +6,8 @@ Standard: ADR-0004 — TDD + SDD.
 
 | Field | Value |
 |---|---|
-| Spec ID / version | SPEC-001 / 0.8 |
-| Status | v0.1–v0.6 reviewed five rounds (Claude reviewer R1–R2, Codex R1–R3c). v0.7 = owner switched access to Tailscale only (2026-11-19); R4 (Claude + Codex) revise → v0.8; awaiting owner approval |
+| Spec ID / version | SPEC-001 / 0.9 |
+| Status | v0.1–v0.6 reviewed five rounds (Claude reviewer R1–R2, Codex R1–R3c). v0.7 = owner switched access to Tailscale only (2026-11-19); R4 (Claude + Codex) revise → v0.8; Codex on 5f1c4d3 revise → v0.9; awaiting owner approval |
 | Repository / path | bookchaowalit/content-production / `specs/001-video-studio-hosted/spec.md` |
 | Owner (maker) | Claude Code |
 | Reviewer (checker) | Fresh Claude reviewer subagent (no maker context) + Codex at Stop |
@@ -16,7 +16,7 @@ Standard: ADR-0004 — TDD + SDD.
 | Related docs | `PRODUCT.md`; `services/video-postproduction/README.md`; `services/video-postproduction-api/README.md`; `apps/video-postproduction-desktop/` (`scripts/runtime-bundle-manifest.js`, `src/runtime/compose.js`, `src/security/studio-csp.js`); ADR-0004, ADR-0007, ADR-0014; PRJ-DSO-02; `platform-uptime-worker` `src/targets.ts` |
 | Main-only | no — branch `spec/video-studio-hosted`, then `feat/video-studio-hosted` |
 | Created / approved | 2026-11-18 / — |
-| Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md`, `review-R3b.md`, `review-R3c.md`, `review-R4.md` |
+| Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md`, `review-R3b.md`, `review-R3c.md`, `review-R4.md`, `review-R5.md` |
 
 ## 1. Problem and intent
 
@@ -145,7 +145,7 @@ Standard: ADR-0004 — TDD + SDD.
 - **R-PROXY-2** Streaming both ways (`duplex: "half"`, unbuffered). The first delivery step is a spike that runs the
   **built standalone image with its production command** (`node server.js`) and proves a 2 GiB POST streams through
   with flat memory, a `Range` 206 and a HEAD. The Next docs in `node_modules/next/dist/docs` are read first (web
-  `AGENTS.md`). Timeouts on the whole path are set explicitly: the web image starts a small launcher (`server-launch.mjs`) that
+  `AGENTS.md`). Timeouts on the whole path are set explicitly: the web image's only start command is a small launcher (`server-launch.mjs`, R-NONROOT) that
   wraps Next's `http.createServer` so `requestTimeout` is 2 h (Node's default 300 s would cut a slow upload), then
   loads `server.js`; the proxy's `fetch` uses an undici `Agent` with `headersTimeout` and `bodyTimeout` of 2 h;
   uvicorn keeps its defaults (no request-body timeout). The spike uploads with the client throttled to 20 Mbit/s so
@@ -155,7 +155,9 @@ Standard: ADR-0004 — TDD + SDD.
   `accept`. Returned headers: `content-type`, `content-length`, `content-range`, `accept-ranges`,
   `content-disposition`, `etag`, `retry-after`, `x-request-id`. Everything else is dropped in both directions.
 - **R-PROXY-4** Every proxied response sets `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff`.
-- **R-PROXY-5** The upstream URL is built on a fixed base from decoded segments; each must match `^[A-Za-z0-9_.-]+$`
+- **R-PROXY-5** The handler first checks the **raw request path** (the URL string the standalone server received,
+  before Next's normalisation; the spike confirms where the handler can read it) for `..`, `%2e`, `%2f`, `%5c` and
+  NUL, then builds the upstream URL on a fixed base from decoded segments; each must match `^[A-Za-z0-9_.-]+$`
   and not be `.` / `..` (refuses `%2e%2e`, encoded `/` `\`, NUL); else 400 `invalid_path`. The query string is
   parsed and re-serialised.
 - **R-PROXY-6** Cross-site and rebinding protection, in every mode. Tailnet access is network-level, so any page
@@ -186,15 +188,20 @@ Standard: ADR-0004 — TDD + SDD.
   a lock-protected sum of the bytes reserved by uploads in progress): `free − reserved − Content-Length ≥ 20 %`
   of the volume, else 507 `insufficient_storage`. The real file size is counted while reading; passing the cap →
   413 and the temp file is deleted. The reservation is released when the request ends. The transcription budget
-  is checked before reading and taken only after the ingest commit (a 411/413/422/507 or an unreadable file costs
-  nothing). A failure deletes the temp file and leaves no row. Temp files older than 1 h, and source files under the media prefix older than 1 h with no `media_assets`
-  row (a crash between publish and commit), are removed by the sweep.
+  is **reserved** atomically before reading (in-process, like the disk reservation), confirmed after the ingest
+  commit and released on any failure (a 411/413/422/507 or an unreadable file costs nothing; with one unit left only
+  one of two concurrent uploads proceeds). A failure deletes the temp file and leaves no row. Each upload in progress registers its temp path in `STORAGE_ROOT/tmp/active/<id>` (touched every 60 s while
+  bytes arrive). The sweep removes a temp file only when it has no active marker or the marker is older than
+  10 min, and source files under the media prefix with no `media_assets` row only when older than 3 h (longer than
+  the 2 h upload limit). An API start clears markers left by the previous process.
 - **R-SIZE sizes** Migration 0004 alters `media_assets.size_bytes` to BIGINT; a Postgres test stores 2,147,483,648.
 - **R-QUEUE** Stage states become `blocked → queued → running → succeeded | failed`. Ingest creates `probe`
   `queued` and `transcribe` `blocked`; migration 0004 turns any `queued` stage whose previous stage has not
   `succeeded` into `blocked`. Every hand-off sets the next stage `blocked → queued` with `enqueued_at = NULL` **in
-  the same commit** that finishes the previous stage; the last stage's `succeeded` and the job's `succeeded` (or
-  `failed`) are one commit. After the commit the worker (or the API, for the first stage) enqueues and sets
+  the same commit** that finishes the previous stage. Terminal commits are single transactions guarded by the
+  lease (R-LEASE): the last stage's `succeeded`, the job's `succeeded` and, for a render, the `render_outputs`
+  row's `succeeded` + `storage_key` + metadata are one commit; a failure sets the stage, the job, every remaining
+  `blocked` stage (→ `skipped`) and the render row to their terminal states in one commit. After the commit the worker (or the API, for the first stage) enqueues and sets
   `enqueued_at`. A failed enqueue leaves the stage `queued` with `enqueued_at = NULL`; the job is **not** marked
   failed (the `queue_error` path is removed) and the API answers 202. The worker claims with a conditional update
   `queued → running` that also requires the previous stage `succeeded`, so a duplicate or early message is a no-op.
@@ -211,13 +218,19 @@ Standard: ADR-0004 — TDD + SDD.
   than `JOB_LEASE_SECONDS` is re-sent. A long stage with a live heartbeat is never taken over. `recover_stale_jobs`
   is replaced. Migration 0004 repairs old rows: a `running` stage gets `heartbeat_at = now()`, and a job whose last
   stage is `succeeded` but which is still `running` becomes `succeeded`.
+- **R-UPGRADE** Upgrading to the release with migration 0004 stops the old worker first (`compose stop worker`,
+  waiting for its current task up to 30 min, then `kill`), then starts the new API (migrate), then the new worker;
+  `scripts/studio/update.sh` does this for every release. Messages left in Redis by the old worker are harmless
+  because the new claim checks stage state and recovery re-sends `queued` stages. Test: upgrade a stack from
+  b2f126a with a job in `probe` and one queued in Redis; both finish.
 - **R-SCHEMA-WAIT** The worker `depends_on` the API with `condition: service_healthy` (healthy only after migrate),
   and at start checks that the database revision is at least its own head; if not it waits (every 5 s, up to
   5 min) before consuming the queue.
-- **R-RERENDER** `RenderService.enqueue` returns an existing render only when it is not `failed`. For a `failed`
-  one it creates a new job and render row whose idempotency key adds `:retry<n>` (n = number of earlier failed
-  renders of that key), so the owner can render the same EDL version again — after a failure, a lease expiry or a
-  restore. Test: fail a render, enqueue again, a new render succeeds.
+- **R-RERENDER** `RenderService.enqueue` returns an existing render only when it is not `failed`. The lookup covers
+  the whole key family (`render:<asset>:<edl>:<version>` and every `…:retry<n>`) and takes the newest row under a
+  row lock on the EDL: if the newest is not `failed` it is returned; if it is `failed` a new job and render row are
+  created with `:retry<n+1>`. So the owner can render the same EDL version again after a failure, a lease expiry or
+  a restore, and repeated requests never create duplicates.
 - **R-QUALITY** API setting `TRANSCRIPTION_QUALITIES` (default `fast,accurate`). `GET /transcription/capabilities`
   adds `qualities`. A quality not listed → 422 `quality_unavailable` on create, retranscribe, upload into a project
   whose stored quality is not listed, and retry. The worker checks again before loading a model and fails the stage
@@ -259,7 +272,8 @@ Standard: ADR-0004 — TDD + SDD.
   entrypoint starts as root only to `chown -R 10001:10001` `/app/storage` or `/app/cache` when their top-level
   owner differs, then `exec setpriv --reuid 10001 --regid 10001 --init-groups` the command. No extra Compose service
   (the desktop parser stays valid). The base file mounts `whisper_cache` at `/app/cache/huggingface` (model
-  re-downloaded once). Web image runs `node server.js` from Next standalone output as 10001.
+  re-downloaded once). Web image runs `node server-launch.mjs` (R-PROXY-2; it loads Next's standalone `server.js`) as 10001 — the same
+  command the spike uses. `server-launch.mjs` is added to the desktop bundle `REQUIRED_FILES`.
 - **R-IMAGE** Images are tagged `video-studio-api:<tag>` / `video-studio-web:<tag>` via `STUDIO_TAG`; the previous
   tag's images stay on the host.
 - **R-HOST** Checkout at `/srv/video-studio/src` (git tag); systemd `video-studio.service` (`compose up -d` /
@@ -274,7 +288,8 @@ Standard: ADR-0004 — TDD + SDD.
   R-LEASE). Kept: all rows, `trace.json`, `MANUAL-STEPS.md`, `edl.json`, `timeline.edl` / `.fcpxml` / `.otio`,
   `captions*.srt|ass`, `history.jsonl`.
 - **R-RET-3** In-flight protection: the sweep locks each candidate asset row (`SELECT … FOR UPDATE`) and skips it
-  while any job, stage or render that uses it is `blocked`, `queued`, `running` or `retry_queued`. Every path that
+  while a **non-terminal** job that uses it exists (job `queued`, `running` or `retry_queued`) or a render using
+  it is `queued` / `rendering`; `blocked` stages of terminal jobs do not exist (they become `skipped`). Every path that
   queues work on a source locks the same row and checks `purged_at` first. A worker that still opens a purged source
   fails the stage with `source_purged`.
 - **R-RET-4** Crash-safe order: set `purged_at` and commit, then delete; each run also deletes files of rows already
@@ -295,7 +310,9 @@ Standard: ADR-0004 — TDD + SDD.
   node, allowed by the R-TS-2 grant) requests `https://video-studio.<tailnet>.ts.net/healthz` (TLS verified,
   10 s timeout) and reports `video-studio-health` (200 → ok; anything else, a TLS error or a timeout → `ok:false`).
   A broken Serve config, a stopped `tailscaled`, a down web or API all turn it red. The container healthchecks
-  (`TS_ENABLE_HEALTH_CHECK`, web, api) are kept for `compose ps`. An hourly timer on Fedora runs `celery inspect
+  are kept for `compose ps`: tailscale uses `TS_ENABLE_HEALTH_CHECK`; the web healthcheck moves from `/` to
+  `/healthz` and sends a `Host` the guard allows in that mode (`STUDIO_PUBLIC_HOST` in prod, the first
+  `STUDIO_LOCAL_HOSTS` entry locally); `/healthz` needs no identity header (R-HEALTH). An hourly timer on Fedora runs `celery inspect
   ping` → `video-studio-worker`.
 - **R-OBS-3** The worker calls `init_error_reporting()` in Celery `worker_process_init`. Web: errors-only Sentry from
   the web-starter `lib/sentry.ts` pattern (no traces, no replay, no bodies, URLs without query strings).
@@ -311,7 +328,9 @@ Standard: ADR-0004 — TDD + SDD.
   (other project name, no ports, no `tailscale` service). Fix-up: `running` jobs → `retry_queued`, `running` stages →
   `queued`, `enqueued_at` cleared on every `queued` stage; `recover_jobs` re-sends them when the API starts (Redis is
   not restored). Reconcile by kind (job directories are `render-<id>` or `export-<id>`): an `export-*` directory and
-  its history line are kept when its `trace.json` passes `production_trace verify`, else both are removed; an
+  its history line are kept when its `trace.json` has `status = accepted`, lists every required export file
+  (`edl.json`, `timeline.edl`, `timeline.fcpxml`, `timeline.otio`, `MANUAL-STEPS.md`, and `captions.srt` when the
+  trace records captions), and passes `production_trace verify`; otherwise both are removed; an
   `export-*` history line whose directory is missing is removed; renders follow the
   dumped `render_outputs.status` — `succeeded` and `failed` kept, a non-terminal row has its job-directory files and
   history lines removed and becomes `failed` / `interrupted_by_restore` together with its stage, so render, stage and
@@ -346,8 +365,8 @@ Standard: ADR-0004 — TDD + SDD.
   `coverage-threshold` (pytest fails when no test is collected); the web job sets `require-tests: true`, adds
   `@vitest/coverage-v8` at the same major as `vitest` (5.x), uses the workflow's `auto` test mode (which writes the
   Vitest coverage summary) and sets `coverage-threshold`. Callers move to the `platform-ci-workflows` release that
-  has these inputs (SHA-pinned; today's pin is v1.1.1). Thresholds = measured baseline on `main` rounded down. New modules get their own gate: the API job runs
-  `coverage report --include=<new module paths> --fail-under=90` after the tests, and `vitest.config.ts` sets
+  has these inputs (SHA-pinned; today's pin is v1.1.1). Thresholds = measured baseline on `main` rounded down. New modules get their own gate, **per file**: the API job runs `scripts/check_module_coverage.py`, which reads
+  `coverage json` and fails if any listed new module is below 90.00 % (two decimals, no rounding up), and `vitest.config.ts` sets
   per-file `thresholds` of 90 % lines for the new web files (proxy, identity, launcher).
 
 ## 3. Acceptance criteria
@@ -364,11 +383,11 @@ Manual checks go to `evidence.md`.
 | AC-3 | R-COMPOSE-1, R-TS-1b | On Fedora, `ss -ltnp` and `docker compose ps` show no studio port; from the host and from the `api` container, `web:3000` / the tailscale container's IP on 3000 do not answer; `tailscale serve status` shows only 443 → `127.0.0.1:3000`, Funnel off; the reviewed tailnet policy is saved. | evidence |
 | AC-4 | R-TS-3/4 | In `tailscale` mode: no `Tailscale-User-Login`, another login, or a tagged-device request → 401; the owner login passes. Missing `STUDIO_OWNER_LOGIN` / `STUDIO_PUBLIC_HOST`, or unset mode → server refuses to start. | `identity.test.ts` |
 | AC-5 | R-PROXY-6 | In both modes: wrong `Host` → 421; a write with `Sec-Fetch-Site` same-site/cross-site, a foreign `Origin`, or neither header → 403; a same-origin write passes. | `proxy.test.ts::host_*`, `::csrf_*` |
-| AC-6 | R-PROXY-5 | Paths with `..`, `%2e%2e`, `%2f`, `%5c`, NUL → 400 and nothing upstream. | `proxy.test.ts::invalid_path_*` |
+| AC-6 | R-PROXY-5 | Paths with `..`, `%2e%2e`, `%2f`, `%5c`, NUL → 400 and nothing upstream, by unit test **and** by raw HTTP requests (`curl --path-as-is`) against the built standalone image; if Next normalises a form away before the handler, the test asserts the request still cannot leave `/api/v1/`. | `proxy.test.ts::invalid_path_*`, image HTTP test |
 | AC-7 | R-PROXY-2, R-TS-5, R-INLINE | On the built standalone image with all checks on: a 2 GiB POST throttled to 20 Mbit/s (> 5 min) completes, web RSS stays under 300 MB, the API sees the right `Content-Length` (browser and desktop window); `Range: bytes=0-1023` → 206 + `Content-Range`; HEAD → headers only, upstream read cancelled; stream is `inline`; `<video>` seeks. | spike + `proxy.test.ts::range`, `::head_cancels`, evidence |
 | AC-8 | R-PROXY-4 | Every proxied response has `private, no-store`. | `proxy.test.ts::no_store` |
-| AC-9 | R-INGEST | Not enough free space → 507 before the body is read (also for two concurrent uploads that together exceed it); no `Content-Length` → 411; too large → 413; an unreadable video → no rows, no temp file, no budget spent; bytes in the container's `/tmp` do not grow during an upload; a 2,147,483,648-byte size round-trips on Postgres (R-SIZE). | `test_ingest.py`, `test_migrations_pg.py::bigint_size` |
-| AC-10 | R-QUEUE, R-LEASE | Kill after the ingest commit, after the probe→transcribe hand-off, after a claim, and before the final commit → after restart each stage's results are committed exactly once (a stage may run again, its outputs are not duplicated) and the job ends `succeeded`; a duplicate or early `transcribe` message is a no-op; a long stage with a live heartbeat is not taken over; a stalled worker that wakes after losing its lease writes nothing; the last attempt's lease expiry ends the job `failed`; a failed enqueue leaves the job recoverable; old-schema rows are repaired. | `test_queue_recovery.py`, `test_migrations_pg.py::repair_*` |
+| AC-9 | R-INGEST | Not enough free space → 507 before the body is read (also for two concurrent uploads that together exceed it); with one budget unit left, of two concurrent uploads one proceeds and one gets 429 before its body is read; a sweep during a 15-min throttled upload does not touch its temp file; no `Content-Length` → 411; too large → 413; an unreadable video → no rows, no temp file, no budget spent; bytes in the container's `/tmp` do not grow during an upload; a 2,147,483,648-byte size round-trips on Postgres (R-SIZE). | `test_ingest.py`, `test_migrations_pg.py::bigint_size` |
+| AC-10 | R-QUEUE, R-LEASE | Kill after the ingest commit, after the probe→transcribe hand-off, after a claim, and before the final commit → after restart each stage's results are committed exactly once (a stage may run again, its outputs are not duplicated) and the job ends `succeeded`; a duplicate or early `transcribe` message is a no-op; a long stage with a live heartbeat is not taken over; a stalled worker that wakes after losing its lease writes nothing; the last attempt's lease expiry ends the job `failed`; a failed enqueue leaves the job recoverable; old-schema rows are repaired; a worker stopped right after the render's terminal commit leaves render, stage and job all `succeeded` (lease recovery does not touch them); a failed `probe` leaves `transcribe` `skipped` and the source is retention-eligible; the R-UPGRADE test passes. | `test_queue_recovery.py`, `test_migrations_pg.py::repair_*` |
 | AC-11 | R-SCHEMA-WAIT | A new worker started on an old schema with a waiting message does not consume it until migrate is done, then runs it. | `test_migrate_wrapper.py::worker_waits` |
 | AC-12 | R-COMPOSE-3 | With both CI runners busy and zram active (`zramctl` recorded), a 10-min 1080p render finishes, no `OOMKilled=true`, no OOM in `dmesg`. | evidence |
 | AC-13 | R-PROXY-2, R-INGEST | From the owner's laptop over the tailnet (away from home, via DERP or direct), a 1.5 GB video uploads in one request and appears in the editor. | evidence |
@@ -378,14 +397,15 @@ Manual checks go to `evidence.md`.
 | AC-18 | R-RET-1…5 | Dry-run lists exactly the expired files; a real run deletes the render file and then render stream, download and `job_file_route` answer 410 while `trace.json` stays; kept files stay; `purged_at` set; purged routes → 410/409; an asset with active work is skipped; a run killed after commit is finished next run. | `test_retention.py` |
 | AC-19 | R-OBS-1/2, R-RET-6, R-BAK-1 | Within 24 h of release the four heartbeats are green; stopping the `tailscale` container, breaking the Serve config, or stopping the API each turns `video-studio-health` `ok:false` within 10 min; retention with < 20 % free → `ok:false`; retention during a backup waits for the lock. | monitor `/status`, `test_retention.py::low_disk`, evidence |
 | AC-20 | R-OBS-3 | A worker task error and a web server error each produce one scrubbed Sentry event. | fake-transport tests + one live check each |
-| AC-21 | R-BAK-1/3 | A drill whose backup ran while a stage was `running`, with a render that finished between dump and file snapshot, plus an export and a failed render made before the backup, restores DB + media from R2; fix-up and reconcile run (the in-progress render becomes `failed`/`interrupted_by_restore` with files and history removed; the export and the failed render's trace stay; render, stage and job agree); the interrupted job completes; a new render of the same EDL version succeeds (R-RERENDER); hashes match `trace.json`; backup size is logged. | drill log |
+| AC-21 | R-BAK-1/3 | A drill whose backup ran while a stage was `running`, with a render that finished between dump and file snapshot, plus an export, an export whose trace verifies but misses `MANUAL-STEPS.md`, and a failed render made before the backup, restores DB + media from R2; fix-up and reconcile run (the in-progress render becomes `failed`/`interrupted_by_restore` with files and history removed; the complete export and the failed render's trace stay, the incomplete export is removed; render, stage and job agree); the interrupted job completes; a new render of the same EDL version succeeds (R-RERENDER); hashes match `trace.json`; backup size is logged. | drill log |
 | AC-22 | R-REL-2/3 | CI: an image of head N starts on a schema at N+1 and logs `schema_newer_than_code`. Host: rehearsal release `studio-v0.1.1` (one additive migration) rolled back to `studio-v0.1.0` in ≤ 10 min; `/healthz` 200; a project opens over the tailnet; no data lost. | `test_migrate_wrapper.py`, evidence |
+| AC-32 | R-NONROOT, R-HEALTH | `docker compose ps` shows `web` healthy in prod and locally (healthcheck on `/healthz` with an allowed `Host`); the running web container's command is `node server-launch.mjs`. | evidence, desktop bundle test |
 | AC-23 | R-NONROOT, R-CI-1 | Both processes run as 10001; image-scan clean of high/critical; a local stack with root-owned volumes from b2f126a upgrades and plays old media. | CI, evidence |
 | AC-24 | R-DESK, R-PROXY-7, R-CI-2 | CI builds and starts the stack from the staged desktop bundle (`/readyz` 200, worker ping); the desktop `compose ps` parsing passes on it; the web image from the bundle refuses to start with `STUDIO_ACCESS_MODE` unset; on Windows the desktop window uploads and renders. | CI, desktop tests, evidence |
 | AC-25 | R-HOST, R-TS-1 | After a Fedora reboot and after `compose up --force-recreate`, the stack and the same tailnet node (no new key) are back and `/healthz` is 200 with no manual step. | evidence |
 | AC-26 | R-COMPOSE-2 | `check-config.sh` passes in CI: each secret only in its services (API token only in `api` and `web`; `TS_AUTHKEY` only in `tailscale`); an empty base default cannot override an env file value. | CI |
-| AC-27 | R-CI-4 | API `coverage-threshold`, web `require-tests` + coverage threshold, and the ≥ 90 % new-module gates fail CI when not met. | CI |
-| AC-30 | R-RERENDER | A failed render of an EDL version can be enqueued again and succeeds; a succeeded or running one is returned as is. | `test_render_retry.py` |
+| AC-27 | R-CI-4 | API `coverage-threshold`, web `require-tests` + coverage threshold, and the per-file ≥ 90 % new-module gates fail CI when not met — including one module at 89.99 % while the average is above 90 %. | CI, `test_check_module_coverage.py` |
+| AC-30 | R-RERENDER | A failed render of an EDL version can be enqueued again and succeeds; enqueuing again while the retry runs or after it succeeded returns the retry, not a new job; two concurrent requests create one retry. | `test_render_retry.py` |
 | AC-31 | D7 | The restic repository on R2 contains no readable media (object names and contents are restic packs only), and the drill restores media with the Infisical key. | drill log |
 | AC-28 | ADR-0007 floor | Project list, new project (upload progress) and editor reflow without horizontal scroll at 320 / 375 / 390 / 768 / 1440 px; upload, render and download work by keyboard alone with visible focus; design-floor checker passes. Before and after deploy. | screenshots, keyboard log, checker output |
 | AC-29 | R-TS-4 (dev), R-PROXY-6 | `npm run dev` with the committed `.env.development` serves the studio against a local API on `127.0.0.1:8000`; a production build ignores that file; the desktop native smoke on `127.0.0.1:13400` passes. | web test, desktop smoke, evidence |
@@ -422,7 +442,10 @@ Manual checks go to `evidence.md`.
 
 ## 6. Delivery order (TDD; red/green log in `red-green.md`)
 
-1. Spike on the built standalone image (R-PROXY-2), including a 2 GiB POST. If it fails, stop and revise.
+1. Spike on the built standalone image (R-PROXY-2), including a 2 GiB throttled POST. The spike is a throwaway
+   branch `spike/video-studio-proxy`; its findings go to `red-green.md` and it is **not merged**. The real proxy,
+   launcher and ingest are then written test-first (red run recorded) in step 3 and 5. If the spike fails, stop and
+   revise this spec.
 2. Migration 0004 + migrate wrapper + Postgres tests (R-SIZE, R-REL-2, repairs).
 3. R-INGEST, R-QUEUE, R-LEASE, R-SCHEMA-WAIT — tests first.
 4. R-QUALITY, R-HEALTH, R-INLINE, R-OBS-3.
