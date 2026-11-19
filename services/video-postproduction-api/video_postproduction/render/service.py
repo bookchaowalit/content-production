@@ -50,6 +50,10 @@ from .base import RenderCapabilityError, RenderEngine, RenderProcessError
 from .ffmpeg import build_ffmpeg_argv, summarize_ffmpeg_argv
 
 
+class SourcePurged(ValueError):
+    """The EDL's source video was removed by the retention policy (SPEC-001 R-RET-5)."""
+
+
 class RenderLimitReached(ValueError):
     """Too many renders of one EDL version (SPEC-001 R-RERENDER)."""
 
@@ -88,6 +92,8 @@ class RenderService:
         asset = self.session.get(MediaAsset, edl_record.source_asset_id)
         if asset is None:
             raise ValueError("source asset not found")
+        if asset.purged_at is not None:
+            raise SourcePurged(str(asset.id))
         return edl_record, asset, validate_edl(edl_record.document)
 
     def _transcript(self, project_id: UUID, asset_id: UUID) -> Transcript | None:
@@ -548,7 +554,20 @@ class RenderService:
         if stage.status == "running":
             self.session.commit()
             return output
-        edl_record, asset, edl = self._context(job.project_id, output.edl_id)
+        try:
+            edl_record, asset, edl = self._context(job.project_id, output.edl_id)
+        except SourcePurged:
+            # SPEC-001 R-RET-5: the source was purged after this render was queued.
+            stage.status = "failed"
+            stage.error_code = "source_purged"
+            stage.error_message = "The source video was removed by the retention policy."
+            job.status = "failed"
+            job.error_code = "source_purged"
+            job.error_message = stage.error_message
+            output.status = "failed"
+            output.error = stage.error_message
+            self.session.commit()
+            return output
         stage.status = "running"
         stage.attempt += 1
         job.status = "running"

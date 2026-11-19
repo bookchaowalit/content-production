@@ -49,6 +49,8 @@ def enqueue_accurate_retranscription(
 ) -> ProcessingJob:
     project = get_project_or_error(session, project_id)
     asset = get_asset_or_error(session, project_id, asset_id)
+    if asset.purged_at is not None:
+        raise APIError("source_purged", "The source video was removed by the retention policy.", 409)
     if project.transcription_quality != "fast":
         raise APIError("transcription_not_fast", "The project is not using fast transcription.", 409)
     if asset.status != "transcribed":

@@ -29,7 +29,7 @@ from ..models import (
     RenderOutput,
     Transcript,
 )
-from ..render.service import RenderLimitReached, RenderService, RenderSuperseded
+from ..render.service import RenderLimitReached, RenderService, RenderSuperseded, SourcePurged
 from ..schemas import (
     AssetListResponse,
     AssetResponse,
@@ -417,6 +417,8 @@ def stream_asset_route(
     storage: StorageProvider = Depends(get_storage),
 ) -> FileResponse:
     asset = get_asset_or_error(session, project_id, asset_id)
+    if asset.purged_at is not None:
+        raise APIError("media_purged", "This file was removed by the retention policy.", 410)
     path = storage.local_path(asset.storage_key)
     if not path.is_file():
         raise APIError("asset_file_not_found", "The media file is unavailable.", 404)
@@ -481,6 +483,11 @@ def retry_job_route(
     project = session.get(Project, job.project_id)
     if project is not None and job.kind in {"ingest", "retranscription"}:
         _require_quality(settings, project.transcription_quality)
+        source = session.get(MediaAsset, job.asset_id)
+        if source is not None and source.purged_at is not None:
+            raise APIError(
+                "source_purged", "The source video was removed by the retention policy.", 409
+            )
     try:
         retried = runner.retry_stage(job.id, stage)
     except ValueError as exc:
@@ -659,6 +666,10 @@ def enqueue_render_route(
         edl_id = latest.id
     try:
         output = render_service.enqueue(project_id, edl_id, queue)
+    except SourcePurged as exc:
+        raise APIError(
+            "source_purged", "The source video was removed by the retention policy.", 409
+        ) from exc
     except RenderLimitReached as exc:
         raise APIError(
             "render_limit_reached",
@@ -694,6 +705,8 @@ def _render_file_response(
     download: bool,
 ) -> FileResponse:
     output = _get_render_output(session, render_id)
+    if output.purged_at is not None:
+        raise APIError("media_purged", "This file was removed by the retention policy.", 410)
     if output.status != "succeeded" or output.storage_key is None:
         raise APIError("render_not_ready", "The rendered video is not ready yet.", 409)
     path = storage.local_path(output.storage_key)
@@ -787,7 +800,15 @@ def job_file_route(
     get_project_or_error(session, project_id)
     if not _JOB_NAME.fullmatch(job_name) or filename not in JOB_FILES:
         raise APIError("job_file_not_found", "The job file was not found.", 404)
-    path = storage.local_path(f"projects/{project_id}/jobs/{job_name}/{filename}")
+    key = f"projects/{project_id}/jobs/{job_name}/{filename}"
+    purged = session.scalar(
+        select(RenderOutput.id).where(
+            RenderOutput.storage_key == key, RenderOutput.purged_at.is_not(None)
+        )
+    )
+    if purged is not None:
+        raise APIError("media_purged", "This file was removed by the retention policy.", 410)
+    path = storage.local_path(key)
     if not path.is_file():
         raise APIError("job_file_not_found", "The job file was not found.", 404)
     return FileResponse(path, media_type=media_type_for(filename), filename=filename)

@@ -149,3 +149,18 @@ Findings that change the implementation (spec text already allows them):
 - Built image smoke (fake API): page without identity 401, owner 200, wrong Host 421, `/healthz` ok, cross-site
   POST 403, same-origin 50 MB POST through the proxy with the token added, raw `%2e%2e` 400, Docker health
   `healthy`, process uid/gid 10001, unset mode → exit 1. Web: 50 tests, `tsc` clean, build ok. Desktop: 109 tests.
+
+## Retention sweep and purged media (F5, R-RET-1…6) — 2026-11-19
+
+- Test: `tests/test_retention.py` (9 cases).
+- **Red**: collection error (no `video_postproduction.retention`); then the route cases returned 404 / 202 and the
+  workers ran on purged sources.
+- **Green**: `retention.sweep` marks expired sources (30 d) and renders (90 d) with `purged_at`, commits, then
+  deletes the files; skips sources with an unfinished job or render; finishes files of rows an interrupted run
+  marked; removes temp files older than 1 h (an active upload writes at least every 10 min — the web idle timeout —
+  so no marker files are needed) and source files without a row older than 3 h; reports free-disk ratio and
+  `ok:false` under 20 %. CLI `python -m video_postproduction.retention sweep [--dry-run]` prints one JSON line and
+  exits 1 when not ok. Purged media: asset stream, render stream/download and `job_file_route` for `render.mp4` →
+  410 `media_purged`; render enqueue, accurate retranscription and retry of a purged source → 409 `source_purged`;
+  probe, transcribe and render workers fail the stage with `source_purged`. Silence cut stays allowed (it edits the
+  EDL from the transcript only). Full API suite: 232 passed, 4 skipped.

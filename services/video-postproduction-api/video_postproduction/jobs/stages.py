@@ -314,6 +314,15 @@ class StageRunner:
                     error_message="Media asset not found",
                 )
                 return
+            if asset.purged_at is not None:
+                self._fail_stage(
+                    job,
+                    stage,
+                    token,
+                    error_code="source_purged",
+                    error_message="The source video was removed by the retention policy.",
+                )
+                return
             try:
                 with self._heartbeat(stage, token) as lost:
                     metadata = self.probe_reader.read(self.storage.local_path(asset.storage_key))
@@ -429,6 +438,15 @@ class StageRunner:
                 token,
                 error_code="asset_not_found",
                 error_message="Media asset not found",
+            )
+            return
+        if asset.purged_at is not None:
+            self._fail_stage(
+                job,
+                stage,
+                token,
+                error_code="source_purged",
+                error_message="The source video was removed by the retention policy.",
             )
             return
         if project.transcription_quality not in self.settings.allowed_qualities:
