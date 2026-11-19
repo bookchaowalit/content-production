@@ -126,3 +126,51 @@ describe("video post-production API client", () => {
     expect(job.id).toBe("job-1");
   });
 });
+
+describe("same-origin API URLs (SPEC-001 R-PROXY-7)", () => {
+  it("builds relative media URLs so the browser only talks to the studio origin", async () => {
+    const api = await import("./api");
+    expect(api.getAssetStreamURL("p 1", "a")).toBe("/api/v1/projects/p%201/assets/a/stream");
+    expect(api.getRenderStreamURL("r")).toBe("/api/v1/renders/r/stream");
+    expect(api.getRenderDownloadURL("r")).toBe("/api/v1/renders/r/download");
+  });
+
+  it("sends API calls to a relative path", async () => {
+    const api = await import("./api");
+    const urls: string[] = [];
+    const fetcher = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({items: [], total: 0}), {status: 200});
+    }) as typeof fetch;
+    await api.listProjects(fetcher);
+    expect(urls).toEqual(["/api/v1/projects"]);
+  });
+});
+
+describe("transcription quality allow-list (SPEC-001 R-QUALITY)", () => {
+  it("reads the qualities this deployment offers", async () => {
+    const api = await import("./api");
+    const fetcher = (async () =>
+      new Response(JSON.stringify({supports_project_quality: true, qualities: ["fast"]}), {status: 200})) as typeof fetch;
+    expect(await api.getTranscriptionCapabilities(fetcher)).toEqual({supports_project_quality: true, qualities: ["fast"]});
+  });
+
+  it("falls back to both qualities for an older API", async () => {
+    const api = await import("./api");
+    const fetcher = (async () => new Response(JSON.stringify({supports_project_quality: true}), {status: 200})) as typeof fetch;
+    expect((await api.getTranscriptionCapabilities(fetcher)).qualities).toEqual(["fast", "accurate"]);
+  });
+
+  it("switches a project's quality with PATCH", async () => {
+    const api = await import("./api");
+    const calls: {url: string; init?: RequestInit}[] = [];
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({url: String(input), init});
+      return new Response(JSON.stringify({id: "p", transcription_quality: "fast"}), {status: 200});
+    }) as typeof fetch;
+    await api.updateProjectQuality("p", "fast", fetcher);
+    expect(calls[0].url).toBe("/api/v1/projects/p");
+    expect(calls[0].init?.method).toBe("PATCH");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({transcription_quality: "fast"});
+  });
+});

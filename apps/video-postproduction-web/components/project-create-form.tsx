@@ -23,6 +23,7 @@ export function ProjectCreateForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [supportsProjectQuality, setSupportsProjectQuality] = useState<boolean | null>(null);
+  const [qualities, setQualities] = useState<TranscriptionQuality[]>(["fast", "accurate"]);
   const [capabilityLoading, setCapabilityLoading] = useState(true);
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [capabilityAttempt, setCapabilityAttempt] = useState(0);
@@ -33,8 +34,12 @@ export function ProjectCreateForm() {
     setCapabilityError(null);
     setSupportsProjectQuality(null);
     getTranscriptionCapabilities()
-      .then(({supports_project_quality}) => {
-        if (active) setSupportsProjectQuality(supports_project_quality);
+      .then(({supports_project_quality, qualities: offered}) => {
+        if (!active) return;
+        setSupportsProjectQuality(supports_project_quality);
+        setQualities(offered);
+        // SPEC-001 R-QUALITY: start on a quality this deployment offers.
+        setTranscriptionQuality((current) => (offered.includes(current) ? current : offered[0] ?? "fast"));
       })
       .catch((cause: unknown) => {
         if (!active) return;
@@ -111,8 +116,8 @@ export function ProjectCreateForm() {
               onChange={(event) => setTranscriptionQuality(event.target.value as TranscriptionQuality)}
               value={transcriptionQuality}
             >
-              <option value="fast">Fast · small</option>
-              <option value="accurate">Accurate · medium</option>
+              {qualities.includes("fast") && <option value="fast">Fast · small</option>}
+              {qualities.includes("accurate") && <option value="accurate">Accurate · medium</option>}
             </select>
             <p className="muted field-hint" id="transcription-quality-wait">
               {transcriptionQuality === "fast"

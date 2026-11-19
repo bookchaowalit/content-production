@@ -17,7 +17,7 @@ related: 00-overview.md, 01-prd.md, 03-nfr-security.md, 04-runbook.md
 ```mermaid
 flowchart LR
   U["ผู้ใช้ (browser หรือหน้าต่าง Electron)"] -->|"127.0.0.1:3400"| W["video-postproduction-web (Next.js)"]
-  U -->|"fetch ตรงไป API ที่ 127.0.0.1:8000"| A["video-postproduction-api (FastAPI)"]
+  U -->|"fetch แบบ relative /api/v1 ผ่าน proxy ของ web (ใส่ token ฝั่ง server, SPEC-001)"| A["video-postproduction-api (FastAPI)"]
   A --> Q["Redis (queue)"]
   Q --> K["worker (Celery)"]
   A --> P[("PostgreSQL")]

@@ -17,6 +17,10 @@ const REQUIRED_FILES = Object.freeze([
   "apps/video-postproduction-web/postcss.config.mjs",
   "apps/video-postproduction-web/tsconfig.json",
   "apps/video-postproduction-web/lib/api.ts",
+  "apps/video-postproduction-web/instrumentation.ts",
+  "apps/video-postproduction-web/server-launch.mjs",
+  "apps/video-postproduction-web/server/guard.mjs",
+  "apps/video-postproduction-web/server/guard.d.mts",
 ]);
 
 const INCLUDED_DIRECTORIES = Object.freeze([

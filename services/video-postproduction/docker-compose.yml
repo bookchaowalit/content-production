@@ -104,17 +104,19 @@ services:
     build:
       context: ../..
       dockerfile: services/video-postproduction/Dockerfile.web
-      args:
-        NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN: ${NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN:-http://localhost:8000}
     environment:
-      NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN: ${NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN:-http://localhost:8000}
+      # SPEC-001: the browser talks only to this origin; the web server proxies /api/v1 to the API.
+      STUDIO_ACCESS_MODE: "off"
+      VIDEO_POSTPRODUCTION_API_INTERNAL_URL: http://api:8000
+      VIDEO_EDITOR_API_TOKEN: ${VIDEO_EDITOR_API_TOKEN:-}
+      STUDIO_HEALTH_HOST: 127.0.0.1:3400
     ports:
       - "127.0.0.1:3400:3000"
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null"]
+      test: ["CMD-SHELL", "wget -qO- --header \"Host: $${STUDIO_HEALTH_HOST}\" http://127.0.0.1:3000/healthz >/dev/null"]
       interval: 10s
       timeout: 5s
       start_period: 25s

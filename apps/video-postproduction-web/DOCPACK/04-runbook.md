@@ -42,7 +42,11 @@ npm run test:browser   # ตั้ง VIDEO_POSTPRODUCTION_API_URL และ VID
 
 | ตัวแปร | ฝั่ง | ความหมาย |
 |---|---|---|
-| `NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN` | web (build-time) | origin ของ API |
+| `STUDIO_ACCESS_MODE` | web (runtime) | `off` (local/desktop) หรือ `tailscale` (hosted); ค่าอื่นหรือไม่ตั้ง = ไม่ยอม start |
+| `VIDEO_POSTPRODUCTION_API_INTERNAL_URL` | web (runtime) | ที่อยู่ API ที่ proxy ส่งต่อ (`http://api:8000` ใน Compose) |
+| `VIDEO_EDITOR_API_TOKEN` | web + api (runtime) | token ที่ proxy ใส่ให้ API; ไม่ถึงเบราว์เซอร์ |
+| `STUDIO_OWNER_LOGIN`, `STUDIO_PUBLIC_HOST` | web (โหมด tailscale) | login เจ้าของและ host ของ Tailscale Serve |
+| `STUDIO_LOCAL_HOSTS` | web (โหมด off) | Host ที่ยอมรับ ค่าเริ่มต้น `127.0.0.1:3400,localhost:3400` |
 | `VIDEO_POSTPRODUCTION_WEB_URL`, `VIDEO_POSTPRODUCTION_API_URL`, `VIDEO_POSTPRODUCTION_SAMPLE_VIDEO`, `VIDEO_POSTPRODUCTION_TRANSCRIPTION_TIMEOUT_MS` | browser smoke | ค่าทดสอบ |
 | `CORS_ALLOWED_ORIGINS`, `MAX_UPLOAD_BYTES`, `ALLOWED_VIDEO_MIME_TYPES` | API | ต้องสอดคล้องกับ origin ของเว็บ |
 | `TRANSCRIPTION_PROVIDER`, `TRANSCRIPTION_LANGUAGE`, `WHISPER_MODEL`, `WHISPER_DEVICE`, `OPENAI_COMPATIBLE_BASE_URL`, `OPENAI_COMPATIBLE_TRANSCRIPTION_MODEL` | API/worker | การถอดเสียง |

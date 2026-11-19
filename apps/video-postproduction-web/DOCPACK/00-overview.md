@@ -18,7 +18,7 @@ related: 01-prd.md, 02-architecture.md, 03-nfr-security.md, 04-runbook.md
 ของ Video Post-production Engine V1 แบบ local-first ผู้ใช้สร้างโปรเจกต์ อัปโหลดวิดีโอ ติดตามสถานะ job
 ดู transcript กำหนดช่วงตัดและ caption preset เลือกรูปแบบผลลัพธ์ (9:16 แนวตั้ง หรือ 16:9 แนวนอน) บันทึก EDL
 สั่ง render แล้ว preview หรือดาวน์โหลด MP4 หน้าเว็บเรียก FastAPI (`services/video-postproduction-api`) โดยตรงจาก browser
-ที่ `NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN` (ค่าเริ่มต้น `http://127.0.0.1:8000`) งานหนักทำใน Celery worker
+ผ่าน proxy `/api/v1` ของ web server เอง (SPEC-001; web ส่งต่อไป `VIDEO_POSTPRODUCTION_API_INTERNAL_URL`) งานหนักทำใน Celery worker
 และ media อยู่ใน Docker named volume บนเครื่องผู้ใช้
 
 ## สถานะปัจจุบัน

@@ -121,3 +121,31 @@ Findings that change the implementation (spec text already allows them):
   `RenderService.retry` retries in place only when the job is the newest of its family, resetting render row, stage
   and job in one commit; `POST /jobs/{id}/retry` on a render job uses it (409 `render_superseded`). Full API suite:
   220 passed, 4 skipped. Render stages still take no lease (recovery leaves them alone, R-LEASE).
+
+## Web: launcher guard, same-origin proxy, relative URLs, quality UI (F1, F2, R-QUALITY UI) — 2026-11-19
+
+- Tests: `apps/video-postproduction-web/server/guard.test.mjs` (17), `lib/server/proxy.test.ts` (11), new cases in
+  `lib/api.test.ts` (5); desktop `tests/studio-csp.test.js` updated.
+- **Red**: guard and proxy suites failed to load (modules missing); the relative-URL and quality client cases
+  failed against the old `lib/api.ts`.
+- **Green**:
+  - `server/guard.mjs`: `loadConfig` (fail closed on unset/unknown mode or missing owner/host), `checkRequest`
+    (raw path 400 → Host 421 → `/healthz` exempt → owner identity 401 in `tailscale` mode → same-origin check 403 for
+    writes, in both modes), `patchCreateServer` (guards every request at the HTTP entry; `requestTimeout` 2 h,
+    idle `timeout` 10 min). `server-launch.mjs` uses it and refuses to start on bad settings.
+  - `lib/server/proxy.ts` (node:http): server token only, header allow-lists both ways, content-type allow-list
+    (others → `application/octet-stream` + `attachment`), `no-store` + `nosniff` + CSP sandbox, HEAD → null body,
+    client abort / upstream error handled (499 / 502), query re-serialised, bad segments 400 without an upstream
+    call. `app/api/v1/[...path]/route.ts` re-checks with the guard; `app/healthz` calls API `/readyz`;
+    `instrumentation.ts` validates settings.
+  - `lib/api.ts` uses relative URLs; `NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN` removed from the app,
+    `Dockerfile.web`, Compose and the desktop smoke override; desktop CSP is `connect-src 'self'`; desktop bundle
+    lists the new web files.
+  - Quality: capabilities carry `qualities`; the create form offers only those; the editor offers
+    "เปลี่ยนเป็น fast" for a project on an unavailable quality (`PATCH /projects/{id}`).
+  - `Dockerfile.web`: standalone output, `node server-launch.mjs`, uid/gid 10001, healthcheck on `/healthz` with an
+    allowed Host. Next bumped 16.4.2 → 16.4.6 (GHSA-mfr8-8qww-v76h, GHSA-vc7v-qv4w-wrv8, moderate; the app does not
+    use `use cache`, bumped anyway; `npm audit --omit=dev` clean).
+- Built image smoke (fake API): page without identity 401, owner 200, wrong Host 421, `/healthz` ok, cross-site
+  POST 403, same-origin 50 MB POST through the proxy with the token added, raw `%2e%2e` 400, Docker health
+  `healthy`, process uid/gid 10001, unset mode → exit 1. Web: 50 tests, `tsc` clean, build ok. Desktop: 109 tests.

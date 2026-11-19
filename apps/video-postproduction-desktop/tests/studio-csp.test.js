@@ -6,12 +6,12 @@ const {
   withStudioContentSecurityPolicy,
 } = require("../src/security/studio-csp");
 
-test("studio CSP allows only the local studio and API surfaces without unsafe-eval", () => {
+test("studio CSP allows only the studio origin (API is proxied, SPEC-001) without unsafe-eval", () => {
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /default-src 'self'/);
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /script-src 'self' 'unsafe-inline'/);
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /style-src 'self' 'unsafe-inline'/);
-  assert.match(STUDIO_CONTENT_SECURITY_POLICY, /http:\/\/127\.0\.0\.1:8000/);
-  assert.match(STUDIO_CONTENT_SECURITY_POLICY, /http:\/\/localhost:8000/);
+  assert.match(STUDIO_CONTENT_SECURITY_POLICY, /connect-src 'self'(;|$)/);
+  assert.doesNotMatch(STUDIO_CONTENT_SECURITY_POLICY, /:8000/);
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /object-src 'none'/);
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /frame-src 'none'/);
   assert.doesNotMatch(STUDIO_CONTENT_SECURITY_POLICY, /unsafe-eval|https:\/\/|\*/);

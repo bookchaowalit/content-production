@@ -15,8 +15,7 @@ services:
     image: video-postproduction-web:native-smoke-test
     ports: !override
       - "127.0.0.1:13400:3000"
-    build:
-      args:
-        NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN: http://127.0.0.1:18000
     environment:
-      NEXT_PUBLIC_VIDEO_POSTPRODUCTION_API_ORIGIN: http://127.0.0.1:18000
+      # The web guard accepts only this Host / Origin (SPEC-001 R-PROXY-6).
+      STUDIO_LOCAL_HOSTS: 127.0.0.1:13400
+      STUDIO_HEALTH_HOST: 127.0.0.1:13400
