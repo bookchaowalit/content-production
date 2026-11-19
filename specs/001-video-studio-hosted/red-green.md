@@ -11,3 +11,11 @@ ADR-0004: each behaviour is written test-first; the red run is recorded before t
 - **Green**: migration `0004_hosted_studio` + ORM columns. 6/6 pass on SQLite and on `postgres:16-alpine`
   (throwaway container), including storing 2,147,483,648 in `media_assets.size_bytes` on Postgres and the
   downgrade/upgrade round trip on an empty database. Full API suite still green.
+
+## Migrate wrapper (R-REL-2) — 2026-11-19
+
+- Test: `services/video-postproduction-api/tests/test_migrate_wrapper.py`.
+- **Red**: collection error — `video_postproduction.migrate` did not exist.
+- **Green**: `video_postproduction/migrate.py`. Empty DB → head; a DB at 0003 → head; a DB stamped with an
+  unknown (newer) revision → returns `schema_newer_than_code`, logs a warning, leaves the revision untouched.
+  The Compose/Dockerfile start command switches to it in the F4 step.
