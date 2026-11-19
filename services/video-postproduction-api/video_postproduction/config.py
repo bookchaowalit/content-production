@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     allowed_video_mime_types: str = "video/mp4,video/quicktime,video/webm,video/x-matroska"
     cors_allowed_origins: str = "http://127.0.0.1:3400,http://localhost:3400"
     transcription_provider: str = "faster_whisper"
+    # SPEC-001 R-QUALITY: qualities this deployment offers, in order ("fast" = Whisper small, "accurate" = medium).
+    transcription_qualities: str = "fast,accurate"
     transcription_language: str | None = None
     whisper_model: str = "small"
     whisper_device: str = "cpu"
@@ -64,6 +66,10 @@ class Settings(BaseSettings):
     @property
     def allowed_mime_types(self) -> frozenset[str]:
         return frozenset(item.strip().lower() for item in self.allowed_video_mime_types.split(",") if item.strip())
+
+    @property
+    def allowed_qualities(self) -> list[str]:
+        return [item.strip() for item in self.transcription_qualities.split(",") if item.strip()]
 
     @property
     def cors_origins(self) -> list[str]:

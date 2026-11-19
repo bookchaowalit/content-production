@@ -19,6 +19,11 @@ class ProjectCreate(BaseModel):
 
 class TranscriptionCapabilities(BaseModel):
     supports_project_quality: bool
+    qualities: list[str] = Field(default_factory=list)
+
+
+class ProjectUpdate(BaseModel):
+    transcription_quality: TranscriptionQuality
 
 
 class ProjectResponse(BaseModel):

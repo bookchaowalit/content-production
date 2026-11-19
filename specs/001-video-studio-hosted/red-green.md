@@ -98,3 +98,15 @@ Findings that change the implementation (spec text already allows them):
   asset + job + `probe` queued + `transcribe` blocked in one commit; a failed enqueue leaves `probe` queued without
   `enqueued_at` (202). Budget is confirmed only after the commit. The old `upload_asset` is removed. Full API
   suite: 202 passed, 4 skipped.
+
+## Quality, readiness, inline stream, worker Sentry (R-QUALITY, R-HEALTH, R-INLINE, R-OBS-3) — 2026-11-19
+
+- Test: `tests/test_quality_health_inline.py` (13 cases).
+- **Red**: 12 failed (no `qualities` in capabilities, no `quality_unavailable` anywhere, no `PATCH /projects/{id}`,
+  the worker loaded a disallowed model, no `/readyz`, asset stream sent `attachment`, no worker init hook).
+- **Green**: `TRANSCRIPTION_QUALITIES` setting; 422 `quality_unavailable` on create, upload into a project whose
+  quality is not offered, accurate retranscription and retry; the worker fails the stage with
+  `quality_unavailable` instead of loading the model; `PATCH /api/v1/projects/{id}` switches quality (409
+  `project_busy` while a job is active); `/readyz` checks `SELECT 1` and Redis `PING` and returns only
+  `{"status": ...}`; asset stream is `inline`; Celery `worker_process_init` calls `init_error_reporting()`. Two
+  capability assertions in `test_api_projects.py` now include `qualities`. Full API suite: 215 passed, 4 skipped.

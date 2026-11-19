@@ -431,6 +431,16 @@ class StageRunner:
                 error_message="Media asset not found",
             )
             return
+        if project.transcription_quality not in self.settings.allowed_qualities:
+            # SPEC-001 R-QUALITY: never load a model this deployment does not offer (no silent downgrade).
+            self._fail_stage(
+                job,
+                stage,
+                token,
+                error_code="quality_unavailable",
+                error_message="The project's transcription quality is not available here.",
+            )
+            return
         try:
             metadata = _metadata_from_json(asset.metadata_json)
             with self._heartbeat(stage, token) as lost:

@@ -5,9 +5,11 @@ from __future__ import annotations
 from uuid import UUID
 
 from celery import Celery  # type: ignore[import-untyped]
+from celery.signals import worker_process_init  # type: ignore[import-untyped]
 
 from ..config import get_settings
 from ..db import SessionLocal
+from ..error_reporting import init_error_reporting
 from ..media.ffprobe import FFprobeMetadataReader
 from ..models import ProcessingJob, Project
 from ..render.ffmpeg import FFmpegRenderEngine
@@ -38,6 +40,13 @@ def _provider(transcription_quality: str = "fast"):
     if current.transcription_provider == "openai_compatible":
         return OpenAICompatibleTranscriptionProvider(current)
     raise ValueError(f"unsupported transcription provider: {current.transcription_provider}")
+
+
+@worker_process_init.connect
+def on_worker_process_init(**_kwargs: object) -> None:
+    """SPEC-001 R-OBS-3: the worker reports errors to Sentry with the same scrubber as the API."""
+
+    init_error_reporting()
 
 
 @celery_app.task(name="video_postproduction.jobs.tasks.run_stage")

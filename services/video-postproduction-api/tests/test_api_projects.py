@@ -55,7 +55,7 @@ async def test_ac_vid_01c_local_whisper_reports_project_quality_support(client, 
     response = await client.get("/api/v1/transcription/capabilities")
 
     assert response.status_code == 200
-    assert response.json() == {"supports_project_quality": True}
+    assert response.json() == {"supports_project_quality": True, "qualities": ["fast", "accurate"]}
 
 
 @pytest.mark.asyncio
@@ -82,7 +82,7 @@ async def test_ac_vid_01c_nonlocal_provider_hides_and_rejects_quality_override(
     )
 
     assert capabilities.status_code == 200
-    assert capabilities.json() == {"supports_project_quality": False}
+    assert capabilities.json() == {"supports_project_quality": False, "qualities": ["fast", "accurate"]}
     assert explicit_fast.status_code == 422
     assert explicit_accurate.status_code == 422
     assert provider_default.status_code == 201
