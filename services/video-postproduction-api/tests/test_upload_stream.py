@@ -100,3 +100,21 @@ async def test_oversized_part_headers_are_refused(tmp_path) -> None:
     with pytest.raises(UploadStreamError):
         await receive_file(chunks(body, 512), HEADER, tmp_path, max_file_bytes=10_000, max_body_bytes=100_000)
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_an_open_upload_holds_a_lock_the_sweep_can_see(tmp_path) -> None:
+    """Review R11: a stalled but open upload stays marked active, however long it is idle."""
+    from video_postproduction.retention import temp_in_use
+
+    body = multipart(("file", "clip.mp4", "video/mp4", b"x" * 50))
+    seen: list[bool] = []
+
+    async def stalled() -> AsyncIterator[bytes]:
+        async for chunk in chunks(body):
+            seen.extend(temp_in_use(part) for part in tmp_path.glob("upload-*.part"))
+            yield chunk
+
+    received = await receive_file(stalled(), HEADER, tmp_path, max_file_bytes=100, max_body_bytes=10_000)
+    assert seen and all(seen)
+    assert temp_in_use(received.path) is False

@@ -105,8 +105,11 @@ class StageRunner:
         transcription_provider: TranscriptionProvider,
         settings: Settings | None = None,
         queue: JobQueue | None = None,
+        transcription_quality: str | None = None,
     ) -> None:
         self.session = session
+        # The quality `transcription_provider` was built for, recorded on the transcript (review R11).
+        self.transcription_quality = transcription_quality
         self.storage = storage
         self.probe_reader = probe_reader
         self.transcription_provider = transcription_provider
@@ -449,7 +452,8 @@ class StageRunner:
                 error_message="The source video was removed by the retention policy.",
             )
             return
-        if project.transcription_quality not in self.settings.allowed_qualities:
+        quality = self.transcription_quality or project.transcription_quality
+        if quality not in self.settings.allowed_qualities:
             # SPEC-001 R-QUALITY: never load a model this deployment does not offer (no silent downgrade).
             self._fail_stage(
                 job,
@@ -485,6 +489,7 @@ class StageRunner:
                     provider=transcript.provider,
                     model=transcript.model,
                     language=transcript.language,
+                    quality=quality,
                     duration=transcript.duration,
                     normalized_json=transcript.model_dump(mode="json"),
                     content_fingerprint=fingerprint,

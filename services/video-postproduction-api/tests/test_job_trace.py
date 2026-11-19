@@ -154,6 +154,7 @@ def studio(session, tmp_path):
             provider="faster_whisper",
             model="medium",
             language="th",
+            quality="accurate",
             duration=120.0,
             normalized_json=_transcript_json(),
             content_fingerprint="f" * 64,

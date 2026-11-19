@@ -89,8 +89,12 @@ cmd_backup() {
   exec 9>"$LOCK"
   flock 9
   # Dump first: every row in it has its file in the snapshot taken next (R-BAK-1). umask 077 keeps it 0600.
-  compose exec -T postgres pg_dump -U video -Fc video_postproduction > "$dump.tmp"
-  mv "$dump.tmp" "$dump"
+  # A failed dump must still reach the monitor (`set -e` would end the script silently) (review R11).
+  if ! compose exec -T postgres pg_dump -U video -Fc video_postproduction > "$dump.tmp" || ! mv "$dump.tmp" "$dump"; then
+    rm -f "$dump.tmp"
+    heartbeat video-studio-backup false "pg_dump failed"
+    exit 1
+  fi
   # restic runs in a container as root with the storage volume mounted read-only, so it can read files owned by
   # uid 10001 with mode 0600; the env file is read by Docker literally (no shell parsing of secrets).
   restic() {

@@ -57,35 +57,56 @@ def derive(secrets: dict[str, str]) -> dict[str, str]:
     return values
 
 
-def write(out: Path, values: dict[str, str]) -> list[str]:
-    out.mkdir(parents=True, exist_ok=True)
-    os.chmod(out, 0o700)
+def render(values: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+    """Build every file's text in memory, refusing any value the env file formats cannot hold."""
+    files: dict[str, str] = {}
     missing: set[str] = set()
     for service, keys in LAYOUT.items():
         lines = []
         for key in keys:
-            source = SENTRY_BY_SERVICE.get(service) if key == "SENTRY_DSN" else key
-            value = values.get(source or key)
+            source = (SENTRY_BY_SERVICE.get(service) if key == "SENTRY_DSN" else key) or key
+            value = values.get(source)
             if value is None:
-                missing.add(source or key)
+                missing.add(source)
                 continue
             if "\n" in value:
                 raise SystemExit(f"{key} contains a newline; refusing to write it")
             # Compose env files: a single-quoted value is taken literally (no `$` interpolation, quotes kept)
-            # (reviews R9, R10). backup.env is read by `docker run --env-file`, which is literal already.
+            # (reviews R9, R10). Compose's parser still treats a backslash before the closing quote as an escape,
+            # so backslashes are refused too (review R11). backup.env is read by `docker run --env-file`, which is
+            # literal already.
             if service == "backup":
                 lines.append(f"{key}={value}")
             elif "'" in value:
                 raise SystemExit(f"{key} contains a single quote; choose another value")
+            elif "\\" in value:
+                raise SystemExit(f"{key} contains a backslash; choose another value")
             else:
                 lines.append(f"{key}='{value}'")
-        target = out / f"{service}.env"
-        descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        files[f"{service}.env"] = "\n".join(lines) + "\n"
+    return files, sorted(missing)
+
+
+def write(out: Path, values: dict[str, str], *, required: set[str] = REQUIRED) -> list[str]:
+    """Write all files or none: values and required keys are checked first, each file is replaced atomically."""
+    files, missing = render(values)
+    absent = sorted(required & set(missing))
+    if absent:
+        raise SystemExit("missing required keys, nothing written: " + ", ".join(absent))
+    out.mkdir(parents=True, exist_ok=True)
+    os.chmod(out, 0o700)
+    for name, text in files.items():
+        target = out / name
+        temp = out / f".{name}.tmp"
+        descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(descriptor, "w") as handle:
-            handle.write("\n".join(lines) + "\n")
-        os.chmod(target, 0o600)
-        print(f"wrote {target.name}")
-    return sorted(missing)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp, 0o600)
+        os.replace(temp, target)
+        print(f"wrote {name}")
+    return missing
 
 
 def main() -> int:
@@ -93,10 +114,14 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=Path("/srv/video-studio/env"))
     parser.add_argument("--infisical-path", default="/video-studio")
     args = parser.parse_args()
-    missing = write(args.out, derive(load_secrets(args.infisical_path)))
+    try:
+        missing = write(args.out, derive(load_secrets(args.infisical_path)))
+    except SystemExit as exc:
+        print(exc, file=sys.stderr)
+        return 1
     if missing:
-        print("missing keys: " + ", ".join(missing))
-    return 1 if REQUIRED & set(missing) else 0
+        print("missing optional keys: " + ", ".join(missing))
+    return 0
 
 
 if __name__ == "__main__":

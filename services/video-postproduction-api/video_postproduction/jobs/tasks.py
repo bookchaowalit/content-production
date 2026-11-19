@@ -75,6 +75,7 @@ def run_stage(job_id: str, stage_name: str) -> None:
             transcription_provider=_provider(transcription_quality),
             settings=current,
             queue=CeleryJobQueue(celery_app),
+            transcription_quality=transcription_quality,
         )
         if stage_name == "probe":
             runner.run_probe(UUID(job_id))
@@ -88,6 +89,7 @@ def run_stage(job_id: str, stage_name: str) -> None:
                     current.ffmpeg_executable,
                     probe_reader=FFprobeMetadataReader(current.ffprobe_executable),
                 ),
+                max_attempts=current.max_stage_attempts,
             )
             render_service.run_job(UUID(job_id))
         else:

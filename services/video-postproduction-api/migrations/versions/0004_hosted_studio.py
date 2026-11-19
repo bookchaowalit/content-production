@@ -32,6 +32,8 @@ def upgrade() -> None:
         batch.add_column(sa.Column("enqueued_at", sa.DateTime(timezone=True), nullable=True))
         batch.add_column(sa.Column("heartbeat_at", sa.DateTime(timezone=True), nullable=True))
         batch.add_column(sa.Column("lease_token", sa.String(length=36), nullable=True))
+    with op.batch_alter_table("transcripts") as batch:
+        batch.add_column(sa.Column("quality", sa.String(length=20), nullable=True))
 
     connection = op.get_bind()
     stages = sa.table(
@@ -133,6 +135,8 @@ def downgrade() -> None:
     connection.execute(
         sa.text("UPDATE processing_stages SET status = 'queued' WHERE status = 'blocked'")
     )
+    with op.batch_alter_table("transcripts") as batch:
+        batch.drop_column("quality")
     with op.batch_alter_table("processing_stages") as batch:
         batch.drop_column("lease_token")
         batch.drop_column("heartbeat_at")

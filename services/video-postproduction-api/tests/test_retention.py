@@ -169,6 +169,23 @@ def test_stale_temp_files_and_orphan_sources_are_removed(session, world) -> None
     assert summary.temp_files == 1 and summary.orphan_files == 1
 
 
+def test_a_locked_temp_file_is_kept_however_old(session, world) -> None:
+    """Review R11: an upload request that is still open holds a shared lock on its temp file."""
+    import fcntl
+
+    storage = world["storage"]
+    open_upload = storage.temp_dir() / "upload-open.part"
+    open_upload.write_bytes(b"x")
+    hours_ago = time.time() - 5 * 3600
+    os.utime(open_upload, (hours_ago, hours_ago))
+    with open_upload.open("rb") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+        summary = sweep(session, storage, Settings(), now=NOW)
+        assert open_upload.exists() and summary.temp_files == 0
+    summary = sweep(session, storage, Settings(), now=NOW)
+    assert not open_upload.exists() and summary.temp_files == 1
+
+
 def test_low_disk_is_reported(session, world, monkeypatch) -> None:
     from video_postproduction import retention
 

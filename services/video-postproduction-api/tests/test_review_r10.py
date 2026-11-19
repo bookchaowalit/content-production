@@ -156,11 +156,11 @@ def _render_env():
 
 def test_compose_env_values_are_single_quoted_and_literal(tmp_path) -> None:
     module = _render_env()
-    module.write(tmp_path, module.derive({"POSTGRES_PASSWORD": '"a"b$HOME c', "TS_AUTHKEY": "k"}))
+    module.write(tmp_path, module.derive({"POSTGRES_PASSWORD": '"a"b$HOME c', "TS_AUTHKEY": "k"}), required=set())
     assert "POSTGRES_PASSWORD='\"a\"b$HOME c'" in (tmp_path / "postgres.env").read_text()
 
 
 def test_a_single_quote_in_a_secret_is_refused(tmp_path) -> None:
     module = _render_env()
     with pytest.raises(SystemExit, match="single quote"):
-        module.write(tmp_path, module.derive({"POSTGRES_PASSWORD": "it's"}))
+        module.write(tmp_path, module.derive({"POSTGRES_PASSWORD": "it's"}), required=set())

@@ -238,3 +238,14 @@ Findings that change the implementation (spec text already allows them):
   retranscription, schema wait ignoring wall time, `enqueued_at` commit failure raising, env values unquoted,
   single quote accepted); the R8 env test was updated to the quoted form.
 - **Green**: fixes in `review-R10.md`. API 256 passed / 4 skipped; web 59; desktop 110; `check_config.py` ok.
+
+## Review R11 fixes — 2026-11-19
+
+- **Red**: `tests/test_review_r11.py` — 10 failed (partial env dir on a missing key or a later bad value, backslash
+  accepted (2), API and worker render caps ignoring `MAX_STAGE_ATTEMPTS`, no heartbeat on a failed `pg_dump`,
+  transcript without quality, trace quality from the project); `test_retention.py` locked temp file swept;
+  `test_upload_stream.py` open upload not marked active; desktop `recover stops the old worker` failed on the stop's
+  CLI timeout. R8/R10 env tests now pass `required=set()`.
+- **Green**: fixes in `review-R11.md`. API 268 passed / 8 skipped (the 8 need FFmpeg/ffprobe, a model or an image,
+  not on this shell's PATH); migration and wrapper tests on Postgres 16; per-module coverage gates ok (total 81 %);
+  web 59; desktop 110 + `tsc`; `check_config.py` ok.

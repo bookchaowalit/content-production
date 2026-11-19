@@ -4,8 +4,8 @@ Deletes source media older than 30 days and rendered MP4 older than 90 days, kee
 interchange file. Crash-safe: a row is marked ``purged_at`` and committed first, then its file is deleted, and every
 run also deletes files of rows already marked. Sources still used by an unfinished job are skipped.
 
-Also removes stale upload temp files (an active upload writes at least every 10 minutes, the web idle timeout) and
-source files left without a row by a crash between publish and commit.
+Also removes stale upload temp files (untouched for an hour and not locked by an open upload request) and source
+files left without a row by a crash between publish and commit.
 
 Run as ``python -m video_postproduction.retention sweep [--dry-run]``; prints one JSON summary line.
 """
@@ -13,6 +13,7 @@ Run as ``python -m video_postproduction.retention sweep [--dry-run]``; prints on
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import logging
 import shutil
@@ -86,6 +87,20 @@ def _delete(storage: LocalFilesystemStorage, key: str) -> bool:
     return False
 
 
+def temp_in_use(path: Path) -> bool:
+    """True while an upload request still holds its shared lock on ``path`` (review R11)."""
+    try:
+        with path.open("rb") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except FileNotFoundError:
+        return False
+    return False
+
+
 def sweep(
     session: Session,
     storage: LocalFilesystemStorage,
@@ -149,7 +164,7 @@ def sweep(
 
         now_ts = time.time()
         for temp in storage.temp_dir().glob("*"):
-            if temp.is_file() and now_ts - temp.stat().st_mtime > TEMP_MAX_AGE_SECONDS:
+            if temp.is_file() and now_ts - temp.stat().st_mtime > TEMP_MAX_AGE_SECONDS and not temp_in_use(temp):
                 temp.unlink(missing_ok=True)
                 summary.temp_files += 1
 

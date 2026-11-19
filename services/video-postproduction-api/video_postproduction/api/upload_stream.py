@@ -7,6 +7,7 @@ straight into a temp file under ``STORAGE_ROOT/tmp`` (same filesystem as the fin
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import os
 import tempfile
@@ -21,8 +22,8 @@ from python_multipart.exceptions import MultipartParseError
 from python_multipart.multipart import MultipartParser, parse_options_header
 
 FILE_FIELD = b"file"
-# The retention sweep removes temp files untouched for an hour; any arriving byte (also of other parts) keeps
-# the file's mtime fresh so a slow but live upload is never swept (review R9).
+# The retention sweep removes temp files untouched for an hour, unless their upload still holds the shared lock taken
+# below (review R11). Any arriving byte also keeps the mtime fresh (review R9), for files a crash left unlocked.
 TOUCH_INTERVAL_SECONDS = 60
 
 
@@ -156,6 +157,8 @@ async def receive_file(
     # python-multipart (>= 0.0.34) caps each part's headers (count 8, 4224 bytes), so header buffers stay small.
     descriptor, name = tempfile.mkstemp(dir=temp_dir, prefix="upload-", suffix=".part")
     path = Path(name)
+    # Active-upload marker for the retention sweep: held until the handle closes, however long the client stalls.
+    fcntl.flock(descriptor, fcntl.LOCK_SH)
     handle = os.fdopen(descriptor, "wb")
     digest = hashlib.sha256()
     body_bytes = 0

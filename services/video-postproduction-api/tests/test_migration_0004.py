@@ -279,6 +279,7 @@ def test_0004_adds_columns_and_repairs_old_rows(alembic_config, database_url) ->
         assert "purged_at" in asset_columns
         assert "purged_at" in render_columns
         assert {"enqueued_at", "heartbeat_at", "lease_token"} <= stage_columns
+        assert "quality" in {c["name"] for c in inspector.get_columns("transcripts")}  # review R11
 
         with engine.connect() as connection:
             queued = _stage_rows(connection, ids["queued"])

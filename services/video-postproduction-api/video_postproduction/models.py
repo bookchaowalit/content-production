@@ -129,6 +129,8 @@ class Transcript(Base):
     provider: Mapped[str] = mapped_column(String(120), nullable=False)
     model: Mapped[str] = mapped_column(String(120), nullable=False)
     language: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # The transcription quality the provider ran with; None for rows made before migration 0004 (review R11).
+    quality: Mapped[str | None] = mapped_column(String(20), nullable=True)
     duration: Mapped[float | None] = mapped_column(nullable=True)
     normalized_json: Mapped[dict[str, Any]] = mapped_column("normalized", JSON, nullable=False)
     content_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)

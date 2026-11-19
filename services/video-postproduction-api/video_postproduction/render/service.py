@@ -117,13 +117,13 @@ class RenderService:
         if transcript is None:
             return None
         normalized = NormalizedTranscript.model_validate(transcript.normalized_json)
-        project = self.session.get(Project, project_id)
         record_transcript(
             trace,
             provider=transcript.provider,
             model=transcript.model,
             language=transcript.language,
-            quality=project.transcription_quality if project is not None else None,
+            # The quality this transcript was made with, not the project's current setting (review R11).
+            quality=transcript.quality,
             fingerprint=transcript.content_fingerprint,
             normalized=normalized,
         )
