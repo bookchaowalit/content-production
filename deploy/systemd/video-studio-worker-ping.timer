@@ -1,0 +1,10 @@
+[Unit]
+Description=Video Studio worker heartbeat (SPEC-001 R-OBS-2)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

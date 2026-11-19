@@ -174,12 +174,18 @@ jobs:
       typecheck-command: ""
 
   video-postproduction-api:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-python.yml@b9957cccb3cc202e9e1a08df01924b8270d796df # v1.6.3
     with:
       working-directory: services/video-postproduction-api
       python-version: "3.12" # matches its Dockerfile (python:3.12-slim)
       install-command: uv pip install -e ".[dev]" -e ../../packages/production-trace
       lint-command: ""
+      # SPEC-001 R-CI-4: total coverage gate (baseline 80 %, rounded down) plus a per-module 90 % gate for the
+      # modules SPEC-001 added. pytest fails by itself when no test is collected.
+      test-command: >-
+        python -m pytest -q --cov=video_postproduction --cov-report=json
+        && python scripts/check_module_coverage.py coverage.json video_postproduction/api/limits.py video_postproduction/api/upload_stream.py video_postproduction/jobs/recovery.py video_postproduction/jobs/recovery_loop.py video_postproduction/migrate.py video_postproduction/retention.py
+      coverage-threshold: "79"
       # Typecheck debt: `mypy .` reports 220 errors (20 in the package itself; the README
       # records a known baseline).
       typecheck-command: ""
@@ -207,10 +213,13 @@ jobs:
       build-command: npm run build
 
   video-postproduction-web:
-    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-node.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-node.yml@b9957cccb3cc202e9e1a08df01924b8270d796df # v1.6.3
     with:
       working-directory: apps/video-postproduction-web
-      test-command: npx vitest run
+      # SPEC-001 R-CI-4: vitest.config.ts writes coverage/coverage-summary.json and holds the per-file 90 % gates.
+      test-command: npx vitest run --coverage
+      require-tests: true
+      coverage-threshold: "90"
       build-command: npm run build
 
   video-postproduction-desktop:
@@ -218,6 +227,65 @@ jobs:
     uses: bookchaowalit/platform-ci-workflows/.github/workflows/ci-node.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1
     with:
       working-directory: apps/video-postproduction-desktop
+
+  video-studio-postgres:
+    # SPEC-001 R-CI-3: migration 0004 (BIGINT, repairs, round trip) on a real Postgres.
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: video_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d video_ci" --health-interval 5s --health-timeout 5s --health-retries 12
+    defaults:
+      run:
+        working-directory: services/video-postproduction-api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+      - run: uv venv .venv && uv pip install --python .venv/bin/python -e ".[dev]" -e ../../packages/production-trace
+      - run: .venv/bin/python -m pytest -q tests/test_migration_0004.py tests/test_migrate_wrapper.py
+        env:
+          VIDEO_TEST_POSTGRES_URL: postgresql+psycopg://postgres:ci-only@127.0.0.1:5432/video_ci
+
+  video-studio-config:
+    # SPEC-001 AC-26: each secret reaches only its services in the merged production Compose config.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker compose version
+      - run: python3 scripts/studio/check_config.py
+
+  video-studio-bundle-smoke:
+    # SPEC-001 AC-24: build and start the stack from the staged desktop runtime bundle.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/video-postproduction-desktop
+      - run: scripts/studio/bundle_smoke.sh
+
+  video-studio-api-image:
+    # SPEC-001 R-CI-1: blocking scan of the API/worker image.
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/image-scan.yml@b9957cccb3cc202e9e1a08df01924b8270d796df # v1.6.3
+    with:
+      context: .
+      dockerfile: services/video-postproduction-api/Dockerfile
+
+  video-studio-web-image:
+    uses: bookchaowalit/platform-ci-workflows/.github/workflows/image-scan.yml@b9957cccb3cc202e9e1a08df01924b8270d796df # v1.6.3
+    with:
+      context: .
+      dockerfile: services/video-postproduction/Dockerfile.web
 
   security:
     uses: bookchaowalit/platform-ci-workflows/.github/workflows/security.yml@87dc5e1c7e0416886a6371d5a101bb2ccba38edd # v1.1.1

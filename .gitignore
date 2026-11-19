@@ -17,3 +17,8 @@ playwright-report/
 .mypy_cache/
 .ruff_cache/
 next-env.d.ts
+
+# SPEC-001 test and build outputs
+coverage.json
+apps/video-postproduction-web/coverage/
+*.tsbuildinfo

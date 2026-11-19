@@ -182,3 +182,31 @@ Findings that change the implementation (spec text already allows them):
   `celery inspect ping`. The first run failed because `pythainlp` writes to `$HOME` (`/root`), fixed by `HOME` /
   `PYTHAINLP_DATA`. Desktop bundle lists `uv.lock`, `docker-entrypoint.sh` and migration 0004; desktop 109 tests,
   compose tests pass.
+
+## Production overlay, host scripts, CI gates (F4, F6 host side, F8) — 2026-11-19
+
+- Tests: `services/video-postproduction/tests/test_prod_overlay.py` (2), `services/video-postproduction-api/tests/
+  test_check_module_coverage.py` (3), retention CLI case; `scripts/studio/bundle_smoke.sh`.
+- **Red**: overlay tests failed (no `check_config.py`); module-gate tests failed (no script); the first bundle
+  smoke run failed — the staged desktop bundle drops the executable bit, so `docker-entrypoint.sh` could not run.
+- **Green**:
+  - `docker-compose.prod.yml`: no published ports, `tailscale` service (pinned 1.104.7 digest, userspace,
+    `TS_AUTH_ONCE`, Serve config, health endpoint), web in its network namespace on 127.0.0.1, per-service
+    `env_file` + `environment: !override`, restart and limits, images by `STUDIO_TAG`; `tailscale/serve.json`
+    (443 → 127.0.0.1:3000, Funnel off).
+  - `scripts/studio/check_config.py` renders the merged config with sentinel env files and fails when a secret
+    reaches another service, a base default shadows it, a port is published, or limits/tags are missing.
+  - `scripts/studio/render_env.py` (Infisical → per-service mode-600 files, never prints values),
+    `studio.sh` (update with worker stop first, up/down, retention, backup, worker-ping; heartbeats), and
+    `health-probe.sh` (beelink, real HTTPS path); `deploy/systemd/` units and timers; `docs/runbooks/video-studio.md`.
+  - API image copies the entrypoint with `--chmod=0755`; bundle smoke then passed: stack built and started from the
+    staged bundle, `/readyz` ok, web `/healthz` ok, worker ping, api/worker/web all uid 10001.
+  - CI: API job on platform-ci-workflows v1.6.3 with `coverage-threshold: 79` (baseline 80 %) and the per-module
+    90 % gate (new modules 93.65–100 %); web job with `require-tests`, `vitest --coverage` and per-file 90 %
+    thresholds (proxy 100 %, guard 100 % lines; total 93.8 %); new jobs `video-studio-postgres`,
+    `video-studio-config`, `video-studio-bundle-smoke`, `video-studio-api-image`, `video-studio-web-image`
+    (image-scan v1.6.3).
+- Deviations recorded for spec v1.2: no upload marker files (a live upload writes at least every 10 min, the
+  web idle timeout, so temp files older than 1 h are safe to delete); silence cut on a purged source is allowed
+  (it only edits the EDL from the transcript). Still open for P3: the restore fix-up/reconcile command and drill,
+  the four `HEARTBEATS` entries in `platform-uptime-worker`.

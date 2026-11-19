@@ -256,3 +256,24 @@ def test_render_worker_fails_when_the_source_was_purged(session, world) -> None:
     assert result.status == "failed"
     assert job.status == "failed"
     assert job.error_code == "source_purged"
+
+
+def test_cli_prints_one_json_line_and_exits_by_health(monkeypatch, capsys, session, tmp_path) -> None:
+    import json
+    from contextlib import contextmanager
+
+    from video_postproduction import db, retention
+
+    @contextmanager
+    def fake_session():
+        yield session
+
+    monkeypatch.setattr(db, "SessionLocal", fake_session)
+    monkeypatch.setattr(retention, "get_settings", lambda: Settings(storage_root=tmp_path / "s"))
+    monkeypatch.setattr(retention, "_disk_usage", lambda path: (100, 50))
+    assert retention.main(["sweep", "--dry-run"]) == 0
+    line = json.loads(capsys.readouterr().out.strip())
+    assert line["dry_run"] is True and line["ok"] is True
+
+    monkeypatch.setattr(retention, "_disk_usage", lambda path: (100, 5))
+    assert retention.main(["sweep"]) == 1

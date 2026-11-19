@@ -32,7 +32,7 @@ RUN uv sync --frozen --no-dev --no-editable --extra transcription --extra sentry
     && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /app --shell /usr/sbin/nologin app \
     && mkdir -p /app/storage /app/cache/huggingface \
     && chown 10001:10001 /app/storage /app/cache /app/cache/huggingface
-COPY services/video-postproduction-api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY --chmod=0755 services/video-postproduction-api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=6 \
