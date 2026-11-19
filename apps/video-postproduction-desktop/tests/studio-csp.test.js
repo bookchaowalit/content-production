@@ -10,8 +10,10 @@ test("studio CSP allows only the studio origin (API is proxied, SPEC-001) withou
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /default-src 'self'/);
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /script-src 'self' 'unsafe-inline'/);
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /style-src 'self' 'unsafe-inline'/);
-  assert.match(STUDIO_CONTENT_SECURITY_POLICY, /connect-src 'self'(;|$)/);
-  assert.doesNotMatch(STUDIO_CONTENT_SECURITY_POLICY, /:8000/);
+  // The studio page uses same-origin /api/v1 (SPEC-001). The loopback API origin stays allowed so a stack started
+  // by an older release keeps working in the new shell until it is rebuilt (review R9); nothing else is allowed.
+  assert.match(STUDIO_CONTENT_SECURITY_POLICY, /connect-src 'self' http:\/\/127\.0\.0\.1:8000 http:\/\/localhost:8000(;|$)/);
+  assert.doesNotMatch(STUDIO_CONTENT_SECURITY_POLICY, /:8000\S*:/);
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /object-src 'none'/);
   assert.match(STUDIO_CONTENT_SECURITY_POLICY, /frame-src 'none'/);
   assert.doesNotMatch(STUDIO_CONTENT_SECURITY_POLICY, /unsafe-eval|https:\/\/|\*/);

@@ -480,16 +480,27 @@ def retry_job_route(
             raise APIError(
                 "render_superseded", "A newer render of this edit exists; use that one.", 409
             ) from exc
+        except SourcePurged as exc:
+            raise APIError(
+                "source_purged", "The source video was removed by the retention policy.", 409
+            ) from exc
+        except RuntimeError as exc:
+            raise APIError(
+                "job_queue_unavailable", "The render job could not be queued.", 503
+            ) from exc
         except ValueError as exc:
             raise APIError(
                 "job_not_retryable", "The requested job stage cannot be retried.", 409
             ) from exc
         return _job_response(session, retried_render)
     stage = payload.stage if payload is not None else "transcribe"
-    project = session.get(Project, job.project_id)
+    # Lock project (quality) and source (retention) rows, as PATCH /projects and the sweep do (review R9).
+    project = session.scalar(select(Project).where(Project.id == job.project_id).with_for_update())
     if project is not None and job.kind in {"ingest", "retranscription"}:
         _require_quality(settings, project.transcription_quality)
-        source = session.get(MediaAsset, job.asset_id)
+        source = session.scalar(
+            select(MediaAsset).where(MediaAsset.id == job.asset_id).with_for_update()
+        )
         if source is not None and source.purged_at is not None:
             raise APIError(
                 "source_purged", "The source video was removed by the retention policy.", 409

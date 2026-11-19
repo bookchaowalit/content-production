@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import tempfile
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,9 @@ from python_multipart.exceptions import MultipartParseError
 from python_multipart.multipart import MultipartParser, parse_options_header
 
 FILE_FIELD = b"file"
+# The retention sweep removes temp files untouched for an hour; any arriving byte (also of other parts) keeps
+# the file's mtime fresh so a slow but live upload is never swept (review R9).
+TOUCH_INTERVAL_SECONDS = 60
 
 
 class UploadStreamError(ValueError):
@@ -157,8 +161,13 @@ async def receive_file(
     body_bytes = 0
     file_bytes = 0
     try:
+        last_touch = time.monotonic()
         async for chunk in stream:
             body_bytes += len(chunk)
+            now = time.monotonic()
+            if now - last_touch >= TOUCH_INTERVAL_SECONDS:
+                os.utime(path)
+                last_touch = now
             if body_bytes > max_body_bytes:
                 raise BodyTooLarge("the request body exceeds the maximum size")
             try:

@@ -21,6 +21,7 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from alembic.util.exc import CommandError
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 
 from .config import get_settings
 from .db import _ensure_sqlite_parent
@@ -75,7 +76,10 @@ def wait_for_schema(
     head = script.get_current_head()
     waited = 0.0
     while True:
-        current = _current_revision(get_settings().database_url)
+        try:
+            current = _current_revision(get_settings().database_url)
+        except SQLAlchemyError:
+            current = None  # database not reachable yet: keep waiting (review R9)
         if current == head:
             return "ready"
         if current is not None:

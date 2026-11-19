@@ -85,8 +85,6 @@ def enqueue_accurate_retranscription(
             "transcription_in_progress", "A transcription job is already in progress.", 409
         )
 
-    previous_quality = project.transcription_quality
-    previous_status = project.status
     job = ProcessingJob(
         project_id=project_id,
         asset_id=asset_id,
@@ -100,18 +98,19 @@ def enqueue_accurate_retranscription(
     project.transcription_quality = "accurate"
     project.status = "processing"
     session.commit()
+    stage = session.scalar(
+        select(ProcessingStage).where(
+            ProcessingStage.job_id == job.id, ProcessingStage.name == "transcribe"
+        )
+    )
     try:
         queue.enqueue(job.id, "transcribe")
-    except Exception as exc:
-        job.status = "failed"
-        job.error_code = "queue_error"
-        job.error_message = "The transcription job could not be queued."
-        project.transcription_quality = previous_quality
-        project.status = previous_status
+    except Exception:  # noqa: BLE001 - SPEC-001 R-QUEUE: recover_jobs re-sends a queued stage
+        logger.warning("enqueue of transcribe for job %s failed; recovery will resend it", job.id)
+        return job
+    if stage is not None:
+        stage.enqueued_at = datetime.now(UTC)
         session.commit()
-        raise APIError(
-            "job_queue_unavailable", "The transcription job could not be queued.", 503
-        ) from exc
     return job
 
 

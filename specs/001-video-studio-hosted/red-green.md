@@ -222,3 +222,12 @@ Findings that change the implementation (spec text already allows them):
 - **Green**: fixes in `review-R8.md` #1–#13. API 244 passed / 4 skipped; web 59 (per-file gates on proxy, guard,
   launch, report-error, both routes); desktop 109; compose + overlay 4; `check_config.py` ok with the kernel-mode
   rule; containerised restic read a 0600 uid-10001 file and a password with spaces/`$`/quotes; bundle smoke ok.
+
+## Review R9 fixes — 2026-11-19
+
+- **Red**: `tests/test_review_r9.py` — 4 of 5 failed (schema wait raised on an unreachable DB, retry route had no
+  row locks, render retry of a purged source answered `job_not_retryable`, temp file not touched during a slow
+  field); `test_accurate_retranscription_queue_failure_stays_recoverable` failed (job marked failed);
+  desktop `recover stops the old worker before rebuilding` and the updated CSP test failed.
+- **Green**: fixes in `review-R9.md`. API 249 passed / 4 skipped (migration and wrapper tests also on Postgres 16,
+  9 Postgres cases); desktop 110; `$` escaping confirmed against `docker compose run … printenv`.

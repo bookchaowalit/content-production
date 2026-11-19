@@ -134,9 +134,13 @@ async def test_accurate_retranscription_rejects_nonlocal_provider(
 
 
 @pytest.mark.asyncio
-async def test_accurate_retranscription_queue_failure_restores_project_state(
+async def test_accurate_retranscription_queue_failure_stays_recoverable(
     client, isolated_upload_api, session
 ):
+    """SPEC-001 R-QUEUE: a broker outage leaves the job queued for recover_jobs instead of failing it."""
+
+    from video_postproduction.models import ProcessingJob, ProcessingStage
+
     project, asset = await _create_fast_transcript(client, session)
     project.status = "processing"
     session.commit()
@@ -150,10 +154,12 @@ async def test_accurate_retranscription_queue_failure_restores_project_state(
         f"/api/v1/projects/{project.id}/assets/{asset.id}/transcribe-accurately"
     )
 
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "job_queue_unavailable"
-    assert project.transcription_quality == "fast"
-    assert project.status == "processing"
+    assert response.status_code == 202
+    job = session.get(ProcessingJob, UUID(response.json()["id"]))
+    stage = session.query(ProcessingStage).filter_by(job_id=job.id, name="transcribe").one()
+    assert job.status == "queued"
+    assert stage.status == "queued"
+    assert stage.enqueued_at is None
 
 
 @pytest.mark.asyncio

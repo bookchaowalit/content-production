@@ -23,6 +23,13 @@ Commands below run as `bookchaowalit` from `/srv/video-studio/src`; `studio.sh` 
 2. `git clone` into `/srv/video-studio/src`, `git checkout refs/tags/studio-v0.1.0`.
 3. `python3 scripts/studio/render_env.py --out /srv/video-studio/env` (prints file names only).
 4. `scripts/studio/studio.sh update studio-v0.1.0` (builds, checks config, starts in order).
+4b. Create the restic repository once, with the same settings the backup timer uses, and prove the first backup:
+
+    ```bash
+    docker run --rm --env-file /srv/video-studio/env/backup.env \
+      restic/restic@sha256:9940e6c7421ab3a21ee9fdc4e91596d04c792b600d31b102696c75cbf3ac4481 init
+    scripts/studio/studio.sh backup   # must end with the video-studio-backup heartbeat ok
+    ```
 5. Install `deploy/systemd/video-studio*.{service,timer}` (not `video-studio-health.*`) into `/etc/systemd/system`,
    `systemctl enable --now video-studio.service video-studio-retention.timer video-studio-backup.timer
    video-studio-worker-ping.timer`.

@@ -108,3 +108,20 @@ def test_readyz_sets_a_statement_timeout_on_postgres() -> None:
     from video_postproduction.main import READY_STATEMENTS
 
     assert READY_STATEMENTS["postgresql"][0].startswith("SET LOCAL statement_timeout")
+
+
+def test_render_env_escapes_dollar_for_compose_but_not_for_docker_run(tmp_path) -> None:
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[3] / "scripts" / "studio" / "render_env.py"
+    spec = importlib.util.spec_from_file_location("render_env", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    values = module.derive(
+        {"POSTGRES_PASSWORD": "a$HOME", "RESTIC_PASSWORD": "r$x", "STUDIO_PUBLIC_HOST": "h", "TS_AUTHKEY": "k"}
+    )
+    module.write(tmp_path, values)
+    assert "POSTGRES_PASSWORD=a$$HOME" in (tmp_path / "postgres.env").read_text()
+    assert "RESTIC_PASSWORD=r$x" in (tmp_path / "backup.env").read_text()
+    assert oct((tmp_path / "postgres.env").stat().st_mode & 0o777) == "0o600"

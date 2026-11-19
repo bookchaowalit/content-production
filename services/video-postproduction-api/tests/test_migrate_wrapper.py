@@ -17,9 +17,26 @@ from video_postproduction.config import get_settings
 CONFIG_PATH = Path(__file__).parents[1] / "alembic.ini"
 
 
-@pytest.fixture
-def database_url(monkeypatch, tmp_path) -> str:
-    url = f"sqlite:///{(tmp_path / 'wrapper.db').as_posix()}"
+def _database_kinds() -> list[str]:
+    import os
+
+    return ["sqlite", "postgres"] if os.environ.get("VIDEO_TEST_POSTGRES_URL") else ["sqlite"]
+
+
+@pytest.fixture(params=_database_kinds())
+def database_url(request, monkeypatch, tmp_path) -> str:
+    """SQLite always; also Postgres when VIDEO_TEST_POSTGRES_URL is set (R-CI-3, review R9)."""
+
+    import os
+
+    if request.param == "sqlite":
+        url = f"sqlite:///{(tmp_path / 'wrapper.db').as_posix()}"
+    else:
+        url = os.environ["VIDEO_TEST_POSTGRES_URL"]
+        engine = sa.create_engine(url)
+        with engine.begin() as connection:
+            connection.execute(sa.text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+        engine.dispose()
     monkeypatch.chdir(CONFIG_PATH.parent)
     monkeypatch.setenv("DATABASE_URL", url)
     monkeypatch.setattr(logging.config, "fileConfig", lambda *args, **kwargs: None)

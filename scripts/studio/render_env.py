@@ -71,7 +71,9 @@ def write(out: Path, values: dict[str, str]) -> list[str]:
                 continue
             if "\n" in value:
                 raise SystemExit(f"{key} contains a newline; refusing to write it")
-            lines.append(f"{key}={value}")
+            # Compose interpolates `$` in env_file values; `$$` is a literal `$` (review R9). backup.env is read by
+            # `docker run --env-file`, which takes values literally, so it is written as is.
+            lines.append(f"{key}={value if service == 'backup' else value.replace('$', '$$')}")
         target = out / f"{service}.env"
         descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(descriptor, "w") as handle:

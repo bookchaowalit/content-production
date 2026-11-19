@@ -338,6 +338,9 @@ class RuntimeManager {
     }
 
     await this.publish(createStatus("starting", null, null, "กำลังสร้างและกู้คืน Video Studio", status.services));
+    // SPEC-001 R-UPGRADE: an old worker must not hand off stages while the new API migrates the database.
+    const stopError = await this.runCompose(["stop", "worker"]);
+    if (stopError) return this.finishComposeFailure(status, stopError);
     const errorCode = await this.runCompose(["up", "--detach", "--build"]);
     if (errorCode) return this.finishComposeFailure(status, errorCode);
     status = await this.waitForHealthy(status.services);

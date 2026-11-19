@@ -14,13 +14,13 @@ CHECK = REPO / "scripts" / "studio" / "check_config.py"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("docker") is None
-    or subprocess.run(["docker", "compose", "version"], capture_output=True).returncode != 0,
+    or subprocess.run(["docker", "compose", "version"], check=False, capture_output=True).returncode != 0,
     reason="needs docker compose",
 )
 
 
 def test_check_config_passes_on_the_committed_overlay() -> None:
-    result = subprocess.run([sys.executable, str(CHECK)], capture_output=True, text=True)
+    result = subprocess.run([sys.executable, str(CHECK)], check=False, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "ok" in result.stdout
 
@@ -34,6 +34,8 @@ def test_check_config_catches_a_secret_in_the_wrong_service(tmp_path) -> None:
         'env_file: ["${STUDIO_ENV_DIR:?set STUDIO_ENV_DIR}/worker.env", "${STUDIO_ENV_DIR:?set STUDIO_ENV_DIR}/web.env"]',
     )
     broken.write_text(text)
-    result = subprocess.run([sys.executable, str(CHECK), "--overlay", str(broken)], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, str(CHECK), "--overlay", str(broken)], check=False, capture_output=True, text=True
+    )
     assert result.returncode == 1
     assert "VIDEO_EDITOR_API_TOKEN" in result.stdout and "worker" in result.stdout
