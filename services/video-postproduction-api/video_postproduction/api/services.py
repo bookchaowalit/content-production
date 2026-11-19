@@ -49,10 +49,17 @@ def enqueue_accurate_retranscription(
 ) -> ProcessingJob:
     project = get_project_or_error(session, project_id)
     asset = get_asset_or_error(session, project_id, asset_id)
+    # Same row lock as the retention sweep (R-RET-3): purge and queuing cannot interleave.
+    session.execute(select(MediaAsset.id).where(MediaAsset.id == asset.id).with_for_update())
+    session.refresh(asset)
     if asset.purged_at is not None:
-        raise APIError("source_purged", "The source video was removed by the retention policy.", 409)
+        raise APIError(
+            "source_purged", "The source video was removed by the retention policy.", 409
+        )
     if project.transcription_quality != "fast":
-        raise APIError("transcription_not_fast", "The project is not using fast transcription.", 409)
+        raise APIError(
+            "transcription_not_fast", "The project is not using fast transcription.", 409
+        )
     if asset.status != "transcribed":
         raise APIError("transcript_not_ready", "The asset does not have a ready transcript.", 409)
     transcript = session.scalar(
@@ -61,7 +68,9 @@ def enqueue_accurate_retranscription(
         .order_by(Transcript.created_at.desc())
     )
     if transcript is None or transcript.provider != "faster_whisper" or transcript.model != "small":
-        raise APIError("fast_transcript_not_found", "The asset has no fast Whisper transcript to improve.", 409)
+        raise APIError(
+            "fast_transcript_not_found", "The asset has no fast Whisper transcript to improve.", 409
+        )
 
     active_job = session.scalar(
         select(ProcessingJob).where(
@@ -72,7 +81,9 @@ def enqueue_accurate_retranscription(
         )
     )
     if active_job is not None:
-        raise APIError("transcription_in_progress", "A transcription job is already in progress.", 409)
+        raise APIError(
+            "transcription_in_progress", "A transcription job is already in progress.", 409
+        )
 
     previous_quality = project.transcription_quality
     previous_status = project.status
@@ -98,7 +109,9 @@ def enqueue_accurate_retranscription(
         project.transcription_quality = previous_quality
         project.status = previous_status
         session.commit()
-        raise APIError("job_queue_unavailable", "The transcription job could not be queued.", 503) from exc
+        raise APIError(
+            "job_queue_unavailable", "The transcription job could not be queued.", 503
+        ) from exc
     return job
 
 
@@ -141,25 +154,46 @@ def ingest_received(
     ``enqueued_at`` for recovery; the upload still succeeds.
     """
 
-    get_project_or_error(session, project_id)
+    # Lock the project row: quality is re-checked here and PATCH /projects/{id} takes the same lock.
+    project = session.scalar(select(Project).where(Project.id == project_id).with_for_update())
+    if project is None:
+        raise APIError("project_not_found", "The project was not found.", 404)
+    if project.transcription_quality not in settings.allowed_qualities:
+        raise APIError(
+            "quality_unavailable", "The project's transcription quality is not available here.", 422
+        )
     try:
-        normalized_type = validate_media_type(received.content_type, received.filename, settings.allowed_mime_types)
+        normalized_type = validate_media_type(
+            received.content_type, received.filename, settings.allowed_mime_types
+        )
     except UploadValidationError as exc:
-        raise APIError("asset_type_not_supported", "The uploaded file type is not supported.", 415) from exc
+        raise APIError(
+            "asset_type_not_supported", "The uploaded file type is not supported.", 415
+        ) from exc
 
     asset_id = uuid4()
-    storage_key = f"projects/{project_id}/original/{asset_id}{Path(received.filename).suffix.lower()}"
+    storage_key = (
+        f"projects/{project_id}/original/{asset_id}{Path(received.filename).suffix.lower()}"
+    )
     try:
         stored = storage.adopt(
-            received.path, storage_key, normalized_type, size_bytes=received.size_bytes, sha256=received.sha256
+            received.path,
+            storage_key,
+            normalized_type,
+            size_bytes=received.size_bytes,
+            sha256=received.sha256,
         )
     except (OSError, StoragePathError) as exc:
-        raise APIError("asset_storage_error", "The uploaded file could not be stored.", 500) from exc
+        raise APIError(
+            "asset_storage_error", "The uploaded file could not be stored.", 500
+        ) from exc
     try:
         try:
             metadata = probe_reader.read(storage.local_path(storage_key))
         except MediaProbeError as exc:
-            raise APIError("asset_not_readable", "The uploaded file is not a readable video.", 422) from exc
+            raise APIError(
+                "asset_not_readable", "The uploaded file is not a readable video.", 422
+            ) from exc
         asset = MediaAsset(
             id=asset_id,
             project_id=project_id,
@@ -197,5 +231,3 @@ def ingest_received(
         probe.enqueued_at = datetime.now(UTC)
         session.commit()
     return asset, job
-
-

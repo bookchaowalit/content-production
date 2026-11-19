@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 # service file -> keys it receives (secret or not); DATABASE_URL and STUDIO_HEALTH_HOST are derived below.
 LAYOUT: dict[str, list[str]] = {
@@ -24,8 +25,8 @@ LAYOUT: dict[str, list[str]] = {
     "worker": ["DATABASE_URL", "SENTRY_DSN"],
     "web": ["VIDEO_EDITOR_API_TOKEN", "STUDIO_OWNER_LOGIN", "STUDIO_PUBLIC_HOST", "STUDIO_HEALTH_HOST", "SENTRY_DSN"],
     "tailscale": ["TS_AUTHKEY"],
-    "backup": ["R2_BACKUP_ACCESS_KEY_ID", "R2_BACKUP_SECRET_ACCESS_KEY", "R2_BACKUP_ENDPOINT", "RESTIC_PASSWORD",
-               "RESTIC_REPOSITORY", "HEARTBEAT_TOKEN", "POSTGRES_PASSWORD"],
+    # Read by `docker run --env-file` (no shell parsing) for the restic container, and by the heartbeat helper.
+    "backup": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "RESTIC_PASSWORD", "RESTIC_REPOSITORY", "HEARTBEAT_TOKEN"],
 }
 SENTRY_BY_SERVICE = {"api": "SENTRY_DSN_API", "worker": "SENTRY_DSN_API", "web": "SENTRY_DSN_WEB"}
 REQUIRED = {"POSTGRES_PASSWORD", "VIDEO_EDITOR_API_TOKEN", "STUDIO_OWNER_LOGIN", "STUDIO_PUBLIC_HOST", "TS_AUTHKEY"}
@@ -45,10 +46,14 @@ def derive(secrets: dict[str, str]) -> dict[str, str]:
     values = dict(secrets)
     if "POSTGRES_PASSWORD" in values:
         values["DATABASE_URL"] = (
-            f"postgresql+psycopg://video:{values['POSTGRES_PASSWORD']}@postgres:5432/video_postproduction"
+            f"postgresql+psycopg://video:{quote(values['POSTGRES_PASSWORD'], safe='')}@postgres:5432/video_postproduction"
         )
     if "STUDIO_PUBLIC_HOST" in values:
         values["STUDIO_HEALTH_HOST"] = values["STUDIO_PUBLIC_HOST"]
+    if "R2_BACKUP_ACCESS_KEY_ID" in values:
+        values["AWS_ACCESS_KEY_ID"] = values["R2_BACKUP_ACCESS_KEY_ID"]
+    if "R2_BACKUP_SECRET_ACCESS_KEY" in values:
+        values["AWS_SECRET_ACCESS_KEY"] = values["R2_BACKUP_SECRET_ACCESS_KEY"]
     return values
 
 

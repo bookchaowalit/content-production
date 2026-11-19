@@ -97,6 +97,7 @@ def _asset_response(asset: MediaAsset) -> AssetResponse:
         status=asset.status,
         metadata=asset.metadata_json,
         created_at=asset.created_at,
+        purged_at=asset.purged_at,
     )
 
 
@@ -230,7 +231,10 @@ def update_project_route(
 ) -> ProjectResponse:
     """SPEC-001 R-QUALITY: switch a project to a quality this deployment offers while it has no active job."""
 
-    project = get_project_or_error(session, project_id)
+    # Lock the project row so a concurrent upload or retry and this switch cannot overtake each other.
+    project = session.scalar(select(Project).where(Project.id == project_id).with_for_update())
+    if project is None:
+        raise APIError("project_not_found", "The project was not found.", 404)
     _require_quality(settings, payload.transcription_quality)
     active = session.scalar(
         select(ProcessingJob.id).where(
@@ -304,6 +308,8 @@ async def upload_asset_route(
 
     project = await run_in_threadpool(get_project_or_error, session, project_id)
     _require_quality(settings, project.transcription_quality)
+    # Give the connection back to the pool for the (possibly long) body stream (review R8).
+    await run_in_threadpool(session.rollback)
     raw_length = request.headers.get("content-length")
     if raw_length is None or not raw_length.isdigit():
         raise APIError("length_required", "The upload needs a Content-Length header.", 411)

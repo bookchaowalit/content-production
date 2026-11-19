@@ -210,3 +210,15 @@ Findings that change the implementation (spec text already allows them):
   web idle timeout, so temp files older than 1 h are safe to delete); silence cut on a purged source is allowed
   (it only edits the EDL from the transcript). Still open for P3: the restore fix-up/reconcile command and drill,
   the four `HEARTBEATS` entries in `platform-uptime-worker`.
+
+## Review R8 fixes — 2026-11-19
+
+- **Red** (tests first): `tests/test_review_r8.py` (5) failed — transaction held during the stream, no
+  `purged_at` in asset responses, raw password in `DATABASE_URL`, no Postgres connect timeout, no readiness
+  statement timeout. Web: `server/launch.test.mjs`, `app/api/v1/[...path]/route.test.ts`, `app/healthz/route.test.ts`
+  were added as characterisation tests for code that already existed (they passed on first run).
+  `lib/server/report-error.test.ts` was written in the same step as `report-error.ts`, so no red run was recorded
+  for it.
+- **Green**: fixes in `review-R8.md` #1–#13. API 244 passed / 4 skipped; web 59 (per-file gates on proxy, guard,
+  launch, report-error, both routes); desktop 109; compose + overlay 4; `check_config.py` ok with the kernel-mode
+  rule; containerised restic read a 0600 uid-10001 file and a password with spaces/`$`/quotes; bundle smoke ok.

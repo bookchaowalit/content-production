@@ -18,7 +18,10 @@ MONITOR_URL=${MONITOR_URL:-https://monitor.bookchaowalit.com}
 TAG_FILE="$STUDIO_HOME/run/STUDIO_TAG"
 COMPOSE_DIR="$SRC/services/video-postproduction"
 
-mkdir -p "$STUDIO_HOME/run" "$STUDIO_HOME/backup"
+# Backups hold plaintext dumps before restic encrypts them: owner-only from creation (review R8).
+umask 077
+install -d -m 0700 "$STUDIO_HOME/run" "$STUDIO_HOME/backup"
+RESTIC_IMAGE="restic/restic@sha256:9940e6c7421ab3a21ee9fdc4e91596d04c792b600d31b102696c75cbf3ac4481" # 0.19.1
 export STUDIO_TAG="${STUDIO_TAG:-$(cat "$TAG_FILE" 2>/dev/null || true)}"
 
 compose() {
@@ -52,8 +55,9 @@ cmd_update() {
   docker build -q -f "$SRC/services/video-postproduction-api/Dockerfile" -t "video-studio-api:$tag" "$SRC"
   docker build -q -f "$SRC/services/video-postproduction/Dockerfile.web" -t "video-studio-web:$tag" "$SRC"
   python3 "$SRC/scripts/studio/check_config.py"
-  # R-UPGRADE: the old worker must not hand off stages while the new API migrates.
-  compose stop --timeout 1800 worker || true
+  # R-UPGRADE: stop the old web (no requests to a mismatched API) and the old worker (no hand-offs during the
+  # migration) first; a failure here stops the update instead of continuing with two releases.
+  compose stop --timeout 1800 web worker
   compose up -d --wait postgres redis tailscale api
   compose up -d --wait worker web
   echo "$tag" > "$TAG_FILE"
@@ -81,19 +85,20 @@ cmd_retention() {
 }
 
 cmd_backup() {
-  local dump="$STUDIO_HOME/backup/studio.dump" volume
+  local dump="$STUDIO_HOME/backup/studio.dump"
   exec 9>"$LOCK"
   flock 9
-  set -a
-  # shellcheck disable=SC1091
-  . "$STUDIO_ENV_DIR/backup.env"
-  set +a
-  export AWS_ACCESS_KEY_ID="$R2_BACKUP_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_BACKUP_SECRET_ACCESS_KEY"
-  # Dump first: every row in it has its file in the snapshot taken next (R-BAK-1).
+  # Dump first: every row in it has its file in the snapshot taken next (R-BAK-1). umask 077 keeps it 0600.
   compose exec -T postgres pg_dump -U video -Fc video_postproduction > "$dump.tmp"
   mv "$dump.tmp" "$dump"
-  volume=$(docker volume inspect -f '{{.Mountpoint}}' video-studio_video_storage)
-  if restic backup --quiet --exclude "$volume/tmp" --exclude "$volume/**/attempt-*" "$dump" "$volume" \
+  # restic runs in a container as root with the storage volume mounted read-only, so it can read files owned by
+  # uid 10001 with mode 0600; the env file is read by Docker literally (no shell parsing of secrets).
+  restic() {
+    docker run --rm --env-file "$STUDIO_ENV_DIR/backup.env" \
+      -v video-studio_video_storage:/data/storage:ro -v "$STUDIO_HOME/backup:/data/backup:ro" \
+      -v video-studio-restic-cache:/root/.cache/restic "$RESTIC_IMAGE" "$@"
+  }
+  if restic backup --quiet --exclude /data/storage/tmp --exclude '/data/storage/**/attempt-*' /data/backup /data/storage \
     && restic forget --quiet --keep-daily 14 --keep-weekly 8 --keep-monthly 6 --prune; then
     heartbeat video-studio-backup true "$(restic stats --mode raw-data --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["total_size"])') bytes"
   else

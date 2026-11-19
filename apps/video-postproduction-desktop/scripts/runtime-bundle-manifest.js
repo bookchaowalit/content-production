@@ -23,6 +23,7 @@ const REQUIRED_FILES = Object.freeze([
   "apps/video-postproduction-web/instrumentation.ts",
   "apps/video-postproduction-web/server-launch.mjs",
   "apps/video-postproduction-web/server/guard.mjs",
+  "apps/video-postproduction-web/server/launch.mjs",
   "apps/video-postproduction-web/server/guard.d.mts",
 ]);
 

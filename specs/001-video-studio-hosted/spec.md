@@ -16,7 +16,7 @@ Standard: ADR-0004 — TDD + SDD.
 | Related docs | `PRODUCT.md`; `services/video-postproduction/README.md`; `services/video-postproduction-api/README.md`; `apps/video-postproduction-desktop/` (`scripts/runtime-bundle-manifest.js`, `src/runtime/compose.js`, `src/security/studio-csp.js`); ADR-0004, ADR-0007, ADR-0014; PRJ-DSO-02; `platform-uptime-worker` `src/targets.ts` |
 | Main-only | no — branch `spec/video-studio-hosted`, then `feat/video-studio-hosted` |
 | Created / approved | 2026-11-18 / 2026-11-19 |
-| Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md`, `review-R3b.md`, `review-R3c.md`, `review-R4.md`, `review-R5.md`, `review-R6.md`, `review-R7.md` |
+| Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md`, `review-R3b.md`, `review-R3c.md`, `review-R4.md`, `review-R5.md`, `review-R6.md`, `review-R7.md`, `review-R8.md` |
 
 ## 1. Problem and intent
 
@@ -102,7 +102,9 @@ Standard: ADR-0004 — TDD + SDD.
 ### F1 — Tailscale ingress
 
 - **R-TS-1** A new Compose service `tailscale` (image `tailscale/tailscale`, pinned digest) in the **prod overlay
-  only**: `TS_HOSTNAME=video-studio`, `TS_USERSPACE=true`, `TS_STATE_DIR=/var/lib/tailscale` (named volume
+  only**: `TS_HOSTNAME=video-studio`, `TS_USERSPACE=false` with `NET_ADMIN` and `/dev/net/tun` (kernel networking: in
+  userspace mode tailscaled forwards tailnet connections to every localhost port, which would let a tailnet
+  peer reach web on 127.0.0.1:3000 without Serve and forge the identity header — review R8), `TS_STATE_DIR=/var/lib/tailscale` (named volume
   `tailscale_state`), `TS_AUTHKEY` from its env file (one-use, pre-authorised, tagged `tag:video-studio`, not
   ephemeral), `TS_AUTH_ONCE=true` (the one-use key is used only for the first login; later starts reuse the state volume),
   `TS_ENABLE_HEALTH_CHECK=true` with `TS_LOCAL_ADDR_PORT=127.0.0.1:9002` (container healthcheck on `/healthz`),
@@ -408,7 +410,7 @@ Manual checks go to `evidence.md`.
 |---|---|---|---|
 | AC-1 | R-TS-1/2 | From an owner device on the tailnet, `https://video-studio.<tailnet>.ts.net` loads the studio with a valid certificate; from a tailnet device not allowed by policy (tested before go-live) and from the public internet it does not connect. | manual, screenshots, policy file |
 | AC-2 | R-PROXY-1/3 | With a sentinel token, pages and proxied API/media responses never contain it in a body or header; with no token, no upstream request has `Authorization`. | `proxy.test.ts::token_never_leaves_server`, `::no_header_without_token` |
-| AC-3 | R-COMPOSE-1, R-TS-1b | On Fedora, `ss -ltnp` and `docker compose ps` show no studio port; from the host and from the `api` container, `web:3000` / the tailscale container's IP on 3000 do not answer; `tailscale serve status` shows only 443 → `127.0.0.1:3000`, Funnel off; the reviewed tailnet policy is saved. | evidence |
+| AC-3 | R-COMPOSE-1, R-TS-1b | On Fedora, `ss -ltnp` and `docker compose ps` show no studio port; from the host, the `api` container and an allowed tailnet peer, port 3000 on the studio (container IP or tailnet IP) does not answer; `tailscale serve status` shows only 443 → `127.0.0.1:3000`, Funnel off; `TS_USERSPACE=false`; the reviewed tailnet policy is saved. | evidence |
 | AC-4 | R-TS-3/4 | In `tailscale` mode: no `Tailscale-User-Login`, another login, or a tagged-device request → 401; the owner login passes. Missing `STUDIO_OWNER_LOGIN` / `STUDIO_PUBLIC_HOST`, or unset mode → server refuses to start. | `identity.test.ts` |
 | AC-5 | R-PROXY-6 | In both modes: wrong `Host` → 421; a write with `Sec-Fetch-Site` same-site/cross-site, a foreign `Origin`, or neither header → 403; a same-origin write passes. | `proxy.test.ts::host_*`, `::csrf_*` |
 | AC-6 | R-PROXY-5 | Paths with `..`, `%2e%2e`, `%2f`, `%5c`, NUL → 400 and nothing upstream, by unit test of the launcher **and** by raw HTTP requests (`curl --path-as-is`) against the built image; the API access log shows none of them. | `proxy.test.ts::invalid_path_*`, image HTTP test |

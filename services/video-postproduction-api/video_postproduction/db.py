@@ -26,7 +26,14 @@ def _ensure_sqlite_parent(database_url: str) -> None:
 def make_engine(settings: Settings | None = None) -> Engine:
     runtime_settings = settings or get_settings()
     _ensure_sqlite_parent(runtime_settings.database_url)
-    connect_args = {"check_same_thread": False} if runtime_settings.database_url.startswith("sqlite") else {}
+    if runtime_settings.database_url.startswith("sqlite"):
+        connect_args: dict[str, object] = {"check_same_thread": False}
+    elif runtime_settings.database_url.startswith("postgresql"):
+        connect_args = {
+            "connect_timeout": 5
+        }  # readiness and recovery must not hang on a stuck server
+    else:
+        connect_args = {}
     return create_engine(
         runtime_settings.database_url,
         connect_args=connect_args,
@@ -36,7 +43,9 @@ def make_engine(settings: Settings | None = None) -> Engine:
 
 
 def make_session_factory(settings: Settings | None = None) -> sessionmaker[Session]:
-    return sessionmaker(bind=make_engine(settings), autoflush=False, expire_on_commit=False, class_=Session)
+    return sessionmaker(
+        bind=make_engine(settings), autoflush=False, expire_on_commit=False, class_=Session
+    )
 
 
 SessionLocal = make_session_factory()

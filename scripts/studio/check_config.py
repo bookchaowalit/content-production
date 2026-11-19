@@ -92,6 +92,10 @@ def check(config: dict) -> list[str]:
             problems.append(f"{service_name} has no mem_limit")
     if services.get("web", {}).get("network_mode") != "service:tailscale":
         problems.append("web must use network_mode: service:tailscale")
+    if (services.get("web", {}).get("environment") or {}).get("HOSTNAME") != "127.0.0.1":
+        problems.append("web must listen on 127.0.0.1 only")
+    if (services.get("tailscale", {}).get("environment") or {}).get("TS_USERSPACE") != "false":
+        problems.append("tailscale must not run in userspace mode (it would forward tailnet traffic to web)")
     for name in ("api", "worker", "web"):
         if not str(services.get(name, {}).get("image", "")).endswith(":studio-check"):
             problems.append(f"{name} image does not use STUDIO_TAG")

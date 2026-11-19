@@ -42,6 +42,8 @@ export interface Asset {
   status: string;
   metadata: Record<string, unknown>;
   created_at: string;
+  /** Set when the retention policy removed the file (SPEC-001 R-RET-5). */
+  purged_at?: string | null;
 }
 
 export interface AssetListResponse {

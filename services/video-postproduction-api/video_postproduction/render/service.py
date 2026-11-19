@@ -437,6 +437,14 @@ class RenderService:
 
         edl_record, asset, _ = self._context(project_id, edl_id)
         self.session.execute(select(EDL.id).where(EDL.id == edl_record.id).with_for_update())
+        # Same row lock as the retention sweep (R-RET-3), then re-check the purge.
+        self.session.execute(
+            select(MediaAsset.id).where(MediaAsset.id == asset.id).with_for_update()
+        )
+        self.session.refresh(asset)
+        if asset.purged_at is not None:
+            self.session.rollback()
+            raise SourcePurged(str(asset.id))
         base_key = f"render:{asset.id}:{edl_record.id}:{edl_record.version}"
         family = self._family(base_key)
         idempotency_key = base_key
@@ -491,6 +499,15 @@ class RenderService:
         if output is None:
             raise ValueError("render output not found")
         self.session.execute(select(EDL.id).where(EDL.id == output.edl_id).with_for_update())
+        source = self.session.scalar(
+            select(MediaAsset)
+            .join(EDL, EDL.source_asset_id == MediaAsset.id)
+            .where(EDL.id == output.edl_id)
+            .with_for_update(of=MediaAsset)
+        )
+        if source is not None and source.purged_at is not None:
+            self.session.rollback()
+            raise SourcePurged(str(source.id))
         base_key = job.idempotency_key.split(":retry", 1)[0]
         newest_job, _ = self._family(base_key)[0]
         if newest_job.id != job.id:

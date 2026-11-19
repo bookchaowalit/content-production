@@ -375,7 +375,11 @@ export function ProjectEditor({projectId, assetId, jobId}: ProjectEditorProps) {
         </div>
         {asset ? (
           <Card className="video-card">
-            <video ref={videoRef} controls preload="metadata" src={getAssetStreamURL(projectId, asset.id)} />
+            {asset.purged_at ? (
+              <p className="notice" role="status">ไฟล์ถูกลบตามระยะเก็บแล้ว — ไฟล์ต้นฉบับเก็บไว้ 30 วัน ข้อมูลโปรเจกต์ transcript และ EDL ยังอยู่</p>
+            ) : (
+              <video ref={videoRef} controls preload="metadata" src={getAssetStreamURL(projectId, asset.id)} />
+            )}
             <div className="video-meta">
               <div><span className="eyebrow">Source</span><strong>{asset.original_filename}</strong></div>
               <div><span className="eyebrow">Status</span><strong>{asset.status}</strong></div>

@@ -29,6 +29,11 @@ from .jobs.recovery_loop import RecoveryLoop
 from .schemas import HealthResponse
 
 SERVICE_NAME = "video-postproduction-api"
+# Readiness query per dialect; Postgres gets a statement timeout so a stuck server answers degraded (review R8).
+READY_STATEMENTS = {
+    "postgresql": ("SET LOCAL statement_timeout = 2000", "SELECT 1"),
+    "default": ("SELECT 1",),
+}
 API_VERSION = "1"
 
 
@@ -91,7 +96,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """SPEC-001 R-HEALTH: database and broker answer; the body never carries details."""
 
         try:
-            session.execute(text("SELECT 1"))
+            dialect = session.get_bind().dialect.name
+            for statement in READY_STATEMENTS.get(dialect, READY_STATEMENTS["default"]):
+                session.execute(text(statement))
+            session.rollback()
             database_ok = True
         except Exception:  # noqa: BLE001 - any database error means not ready
             database_ok = False
