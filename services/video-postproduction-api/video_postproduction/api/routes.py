@@ -29,7 +29,7 @@ from ..models import (
     RenderOutput,
     Transcript,
 )
-from ..render.service import RenderService
+from ..render.service import RenderService, RenderSuperseded
 from ..schemas import (
     AssetListResponse,
     AssetResponse,
@@ -460,8 +460,23 @@ def retry_job_route(
     session: Session = Depends(get_session),
     runner: StageRunner = Depends(get_stage_runner),
     settings: Settings = Depends(get_settings),
+    render_service: RenderService = Depends(get_render_service),
+    queue: JobQueue = Depends(get_job_queue),
 ) -> JobResponse:
     job = get_job_or_error(session, job_id)
+    if job.kind == "render":
+        # SPEC-001 R-RERENDER: the same locked family rule as enqueueing a render.
+        try:
+            retried_render = render_service.retry(job.id, queue)
+        except RenderSuperseded as exc:
+            raise APIError(
+                "render_superseded", "A newer render of this edit exists; use that one.", 409
+            ) from exc
+        except ValueError as exc:
+            raise APIError(
+                "job_not_retryable", "The requested job stage cannot be retried.", 409
+            ) from exc
+        return _job_response(session, retried_render)
     stage = payload.stage if payload is not None else "transcribe"
     project = session.get(Project, job.project_id)
     if project is not None and job.kind in {"ingest", "retranscription"}:

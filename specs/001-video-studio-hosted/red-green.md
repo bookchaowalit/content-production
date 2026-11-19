@@ -110,3 +110,14 @@ Findings that change the implementation (spec text already allows them):
   `project_busy` while a job is active); `/readyz` checks `SELECT 1` and Redis `PING` and returns only
   `{"status": ...}`; asset stream is `inline`; Celery `worker_process_init` calls `init_error_reporting()`. Two
   capability assertions in `test_api_projects.py` now include `qualities`. Full API suite: 215 passed, 4 skipped.
+
+## Render again after a failure (R-RERENDER) — 2026-11-19
+
+- Test: `tests/test_render_retry.py` (5 cases).
+- **Red**: collection error (no `RenderSuperseded` / `RenderService.retry`); then the route test answered 200 for
+  a superseded render.
+- **Green**: `RenderService.enqueue` locks the EDL row, looks at the whole key family (`render:<asset>:<edl>:<v>`
+  and `…:retry<n>`), returns the newest render unless it failed, otherwise creates `…:retry<n>`;
+  `RenderService.retry` retries in place only when the job is the newest of its family, resetting render row, stage
+  and job in one commit; `POST /jobs/{id}/retry` on a render job uses it (409 `render_superseded`). Full API suite:
+  220 passed, 4 skipped. Render stages still take no lease (recovery leaves them alone, R-LEASE).
