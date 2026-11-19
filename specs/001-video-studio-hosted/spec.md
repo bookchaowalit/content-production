@@ -6,8 +6,8 @@ Standard: ADR-0004 — TDD + SDD.
 
 | Field | Value |
 |---|---|
-| Spec ID / version | SPEC-001 / 0.10 |
-| Status | v0.1–v0.6 reviewed five rounds (Claude reviewer R1–R2, Codex R1–R3c). v0.7 = owner switched access to Tailscale only (2026-11-19); R4 (Claude + Codex) revise → v0.8; Codex on 5f1c4d3 revise → v0.9; Codex on 47e2e26/069b929 revise → v0.10; awaiting owner approval |
+| Spec ID / version | SPEC-001 / 1.0 |
+| Status | **Approved** by the owner 2026-11-19 ("อนุมัติ เริ่ม P1") after nine review rounds (v0.1–v0.10, logs below); D7 decided as recommended |
 | Repository / path | bookchaowalit/content-production / `specs/001-video-studio-hosted/spec.md` |
 | Owner (maker) | Claude Code |
 | Reviewer (checker) | Fresh Claude reviewer subagent (no maker context) + Codex at Stop |
@@ -15,7 +15,7 @@ Standard: ADR-0004 — TDD + SDD.
 | Requirement links | Knowledge store `plans/content-production-deploy/PLAN.md` (D1–D6 approved 2026-11-18; D5 replaced 2026-11-19) |
 | Related docs | `PRODUCT.md`; `services/video-postproduction/README.md`; `services/video-postproduction-api/README.md`; `apps/video-postproduction-desktop/` (`scripts/runtime-bundle-manifest.js`, `src/runtime/compose.js`, `src/security/studio-csp.js`); ADR-0004, ADR-0007, ADR-0014; PRJ-DSO-02; `platform-uptime-worker` `src/targets.ts` |
 | Main-only | no — branch `spec/video-studio-hosted`, then `feat/video-studio-hosted` |
-| Created / approved | 2026-11-18 / — |
+| Created / approved | 2026-11-18 / 2026-11-19 |
 | Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md`, `review-R3b.md`, `review-R3c.md`, `review-R4.md`, `review-R5.md`, `review-R6.md` |
 
 ## 1. Problem and intent
@@ -43,7 +43,7 @@ Standard: ADR-0004 — TDD + SDD.
 | D4 | Transcription stays local (`faster_whisper`, CPU). No media leaves the house. Hosted runs offer `fast` (`small` model) only (R-QUALITY). |
 | D5 | **(2026-11-19, replaces the Cloudflare hostname)** Access only through Tailscale: a tagged node `video-studio` on the personal tailnet, HTTPS by Tailscale Serve, owner devices only by tailnet policy. |
 | D6 | Retention: source media 30 days, rendered MP4 90 days after creation. Metadata, traces and interchange files are kept. |
-| D7 | **Open — decided by approving this spec.** Off-site backup of media is an explicit exception to "media stays at home" (D4): source media and renders go to R2 **only as restic ciphertext** (key `RESTIC_PASSWORD` in Infisical, never on R2). Alternative if the owner refuses: R2 gets only the DB dump, traces and interchange files, and media is backed up on the LAN to the beelink Samba share (`/mnt/backup-vzdump` disk), losing off-site copies of media. |
+| D7 | **(2026-11-19, approved with the spec)** Off-site backup of media is an explicit exception to "media stays at home" (D4): source media and renders go to R2 **only as restic ciphertext** (key `RESTIC_PASSWORD` in Infisical, never on R2). Alternative if the owner refuses: R2 gets only the DB dump, traces and interchange files, and media is backed up on the LAN to the beelink Samba share (`/mnt/backup-vzdump` disk), losing off-site copies of media. |
 
 ### Facts found while writing this spec (2026-11-18, main b2f126a)
 
