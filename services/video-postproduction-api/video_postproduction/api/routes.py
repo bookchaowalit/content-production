@@ -29,7 +29,7 @@ from ..models import (
     RenderOutput,
     Transcript,
 )
-from ..render.service import RenderService, RenderSuperseded
+from ..render.service import RenderLimitReached, RenderService, RenderSuperseded
 from ..schemas import (
     AssetListResponse,
     AssetResponse,
@@ -659,6 +659,12 @@ def enqueue_render_route(
         edl_id = latest.id
     try:
         output = render_service.enqueue(project_id, edl_id, queue)
+    except RenderLimitReached as exc:
+        raise APIError(
+            "render_limit_reached",
+            "This edit has been rendered too many times; change the edit first.",
+            409,
+        ) from exc
     except ValueError as exc:
         raise APIError("render_request_invalid", "The render request is invalid.", 422) from exc
     except RuntimeError as exc:

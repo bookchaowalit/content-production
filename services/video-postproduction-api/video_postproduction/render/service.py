@@ -50,6 +50,10 @@ from .base import RenderCapabilityError, RenderEngine, RenderProcessError
 from .ffmpeg import build_ffmpeg_argv, summarize_ffmpeg_argv
 
 
+class RenderLimitReached(ValueError):
+    """Too many renders of one EDL version (SPEC-001 R-RERENDER)."""
+
+
 class RenderSuperseded(ValueError):
     """A newer render of the same EDL version exists, so the old job is not retried (SPEC-001 R-RERENDER)."""
 
@@ -57,10 +61,21 @@ class RenderSuperseded(ValueError):
 class RenderService:
     """Render an EDL to a temp artifact, validate it, then persist it atomically."""
 
-    def __init__(self, session: Session, *, storage: StorageProvider, engine: RenderEngine) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        storage: StorageProvider,
+        engine: RenderEngine,
+        max_attempts: int = 3,
+        max_family: int = 10,
+    ) -> None:
         self.session = session
         self.storage = storage
         self.engine = engine
+        # Limits on re-rendering one EDL version (SPEC-001 R-RERENDER): attempts per job and jobs per family.
+        self.max_attempts = max_attempts
+        self.max_family = max_family
 
     def _context(self, project_id: UUID, edl_id: UUID) -> tuple[EDL, MediaAsset, EDLDocument]:
         edl_record = self.session.scalar(
@@ -424,6 +439,9 @@ class RenderService:
             if newest_output is not None and newest_output.status != "failed":
                 self.session.commit()
                 return newest_output
+            if len(family) >= self.max_family:
+                self.session.rollback()
+                raise RenderLimitReached(base_key)
             idempotency_key = f"{base_key}:retry{len(family)}"
 
         job = ProcessingJob(
@@ -480,6 +498,9 @@ class RenderService:
         if stage is None or stage.status != "failed":
             self.session.rollback()
             raise ValueError("only failed render jobs can be retried")
+        if stage.attempt >= self.max_attempts:
+            self.session.rollback()
+            raise ValueError("render retry limit reached")
         stage.status = "queued"
         stage.error_code = None
         stage.error_message = None
@@ -489,7 +510,17 @@ class RenderService:
         output.status = "queued"
         output.error = None
         self.session.commit()
-        queue.enqueue(job.id, "render")
+        try:
+            queue.enqueue(job.id, "render")
+        except Exception as exc:
+            stage.status = "failed"
+            job.status = "failed"
+            job.error_code = "queue_error"
+            job.error_message = "The render job could not be queued."
+            output.status = "failed"
+            output.error = "The render job could not be queued."
+            self.session.commit()
+            raise RuntimeError("render job could not be queued") from exc
         return job
 
     def run_job(self, job_id: UUID) -> RenderOutput:

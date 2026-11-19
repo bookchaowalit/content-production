@@ -15,7 +15,7 @@ from video_postproduction.models import (
     RenderOutput,
 )
 from video_postproduction.render.base import RenderProcessError
-from video_postproduction.render.service import RenderService, RenderSuperseded
+from video_postproduction.render.service import RenderLimitReached, RenderService, RenderSuperseded
 from video_postproduction.storage.local import LocalFilesystemStorage
 
 
@@ -150,3 +150,40 @@ async def test_retry_route_refuses_a_superseded_render(client, session, project_
         app.dependency_overrides.clear()
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "render_superseded"
+
+
+def test_in_place_retry_respects_the_attempt_limit(session, project_with_edl) -> None:
+    project, edl, storage = project_with_edl
+    first = _fail_first_render(session, project, edl, storage)
+    stage_row = session.query(ProcessingStage).filter_by(job_id=first.job_id, name="render").one()
+    stage_row.attempt = 3
+    session.commit()
+    service = RenderService(session, storage=storage, engine=FakeRenderEngine(), max_attempts=3)
+    with pytest.raises(ValueError, match="retry limit"):
+        service.retry(first.job_id, RecordingQueue())
+
+
+def test_render_family_is_capped(session, project_with_edl) -> None:
+    project, edl, storage = project_with_edl
+    failing = RenderService(session, storage=storage, engine=FailingEngine(), max_family=2)
+    for _ in range(2):
+        output = failing.enqueue(project.id, edl.id, RecordingQueue())
+        with pytest.raises(RenderProcessError):
+            failing.run_job(output.job_id)
+    with pytest.raises(RenderLimitReached):
+        failing.enqueue(project.id, edl.id, RecordingQueue())
+
+
+def test_failed_dispatch_on_retry_leaves_the_render_failed(session, project_with_edl) -> None:
+    class DownQueue:
+        def enqueue(self, job_id, stage_name):
+            raise ConnectionError("broker down")
+
+    project, edl, storage = project_with_edl
+    first = _fail_first_render(session, project, edl, storage)
+    service = RenderService(session, storage=storage, engine=FakeRenderEngine())
+    with pytest.raises(RuntimeError):
+        service.retry(first.job_id, DownQueue())
+    session.refresh(first)
+    job = session.get(ProcessingJob, first.job_id)
+    assert (first.status, job.status, job.error_code) == ("failed", "failed", "queue_error")
