@@ -1976,7 +1976,7 @@ wheels = [
 [[package]]
 name = "solo-empire-production-trace"
 version = "0.1.0"
-source = { directory = "../../packages/production-trace" }
+source = { editable = "../../packages/production-trace" }
 
 [package.metadata]
 requires-dist = [{ name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3,<10" }]
@@ -2042,7 +2042,7 @@ requires-dist = [
     { name = "redis", specifier = ">=5.2,<9" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<1" },
     { name = "sentry-sdk", extras = ["fastapi"], marker = "extra == 'sentry'", specifier = ">=2.25,<3" },
-    { name = "solo-empire-production-trace", directory = "../../packages/production-trace" },
+    { name = "solo-empire-production-trace", editable = "../../packages/production-trace" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32,<1" },
 ]

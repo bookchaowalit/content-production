@@ -62,4 +62,4 @@ strict = true
 warn_unused_ignores = true
 
 [tool.uv.sources]
-solo-empire-production-trace = { path = "../../packages/production-trace" }
+solo-empire-production-trace = { path = "../../packages/production-trace", editable = true }
