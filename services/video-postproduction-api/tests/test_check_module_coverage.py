@@ -23,7 +23,9 @@ def _report(tmp_path, files: dict[str, tuple[int, int]]) -> Path:
 
 
 def _run(report: Path, *modules: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, str(SCRIPT), str(report), *modules], capture_output=True, text=True)
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), str(report), *modules], check=False, capture_output=True, text=True
+    )
 
 
 def test_one_module_just_below_the_bar_fails_even_when_the_average_passes(tmp_path) -> None:
