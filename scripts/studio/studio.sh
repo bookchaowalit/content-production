@@ -98,8 +98,9 @@ cmd_backup() {
       -v video-studio_video_storage:/data/storage:ro -v "$STUDIO_HOME/backup:/data/backup:ro" \
       -v video-studio-restic-cache:/root/.cache/restic "$RESTIC_IMAGE" "$@"
   }
-  if restic backup --quiet --exclude /data/storage/tmp --exclude '/data/storage/**/attempt-*' /data/backup /data/storage \
-    && restic forget --quiet --keep-daily 14 --keep-weekly 8 --keep-monthly 6 --prune; then
+  # A fixed --host keeps every snapshot in one group, so `forget` applies the retention policy (review R10).
+  if restic backup --quiet --host video-studio --exclude /data/storage/tmp --exclude '/data/storage/**/attempt-*' /data/backup /data/storage \
+    && restic forget --quiet --host video-studio --keep-daily 14 --keep-weekly 8 --keep-monthly 6 --prune; then
     heartbeat video-studio-backup true "$(restic stats --mode raw-data --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["total_size"])') bytes"
   else
     heartbeat video-studio-backup false "restic failed"

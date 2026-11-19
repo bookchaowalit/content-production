@@ -436,6 +436,8 @@ class RenderService:
         """
 
         edl_record, asset, _ = self._context(project_id, edl_id)
+        # Lock order project → EDL → asset everywhere, so concurrent retries cannot deadlock (review R10).
+        self.session.execute(select(Project.id).where(Project.id == project_id).with_for_update())
         self.session.execute(select(EDL.id).where(EDL.id == edl_record.id).with_for_update())
         # Same row lock as the retention sweep (R-RET-3), then re-check the purge.
         self.session.execute(
@@ -498,6 +500,9 @@ class RenderService:
         output = self.session.scalar(select(RenderOutput).where(RenderOutput.job_id == job.id))
         if output is None:
             raise ValueError("render output not found")
+        self.session.execute(
+            select(Project.id).where(Project.id == job.project_id).with_for_update()
+        )
         self.session.execute(select(EDL.id).where(EDL.id == output.edl_id).with_for_update())
         source = self.session.scalar(
             select(MediaAsset)

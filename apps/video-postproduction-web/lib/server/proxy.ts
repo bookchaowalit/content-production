@@ -18,7 +18,15 @@ const FORWARD_RESPONSE = [
   "retry-after",
   "x-request-id",
 ];
-const SAFE_CONTENT_TYPES = [/^application\/json\b/i, /^video\//i, /^audio\//i, /^image\/(png|jpeg)\b/i, /^text\/plain\b/i];
+// multipart/byteranges carries several Range parts of a video; renaming it would hide the boundary (review R10).
+const SAFE_CONTENT_TYPES = [
+  /^application\/json\b/i,
+  /^video\//i,
+  /^audio\//i,
+  /^image\/(png|jpeg)\b/i,
+  /^text\/plain\b/i,
+  /^multipart\/byteranges\b/i,
+];
 export const UPSTREAM_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 export type ProxyEnv = {

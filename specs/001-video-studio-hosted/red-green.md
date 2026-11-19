@@ -231,3 +231,10 @@ Findings that change the implementation (spec text already allows them):
   desktop `recover stops the old worker before rebuilding` and the updated CSP test failed.
 - **Green**: fixes in `review-R9.md`. API 249 passed / 4 skipped (migration and wrapper tests also on Postgres 16,
   9 Postgres cases); desktop 110; `$` escaping confirmed against `docker compose run … printenv`.
+
+## Review R10 fixes — 2026-11-19
+
+- **Red**: `tests/test_review_r10.py` — 6 failed (lock order asset before project in render enqueue/retry and
+  retranscription, schema wait ignoring wall time, `enqueued_at` commit failure raising, env values unquoted,
+  single quote accepted); the R8 env test was updated to the quoted form.
+- **Green**: fixes in `review-R10.md`. API 256 passed / 4 skipped; web 59; desktop 110; `check_config.py` ok.

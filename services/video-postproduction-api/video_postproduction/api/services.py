@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..config import Settings
@@ -49,7 +50,8 @@ def enqueue_accurate_retranscription(
 ) -> ProcessingJob:
     project = get_project_or_error(session, project_id)
     asset = get_asset_or_error(session, project_id, asset_id)
-    # Same row lock as the retention sweep (R-RET-3): purge and queuing cannot interleave.
+    # Lock order project → asset everywhere (review R10); the asset lock is the one the retention sweep takes.
+    session.execute(select(Project.id).where(Project.id == project_id).with_for_update())
     session.execute(select(MediaAsset.id).where(MediaAsset.id == asset.id).with_for_update())
     session.refresh(asset)
     if asset.purged_at is not None:
@@ -227,6 +229,14 @@ def ingest_received(
     except Exception:  # noqa: BLE001 - recover_jobs re-sends a queued stage without enqueued_at
         logger.warning("enqueue of probe for job %s failed; recovery will resend it", job.id)
     else:
-        probe.enqueued_at = datetime.now(UTC)
-        session.commit()
+        # Best effort: the upload is already committed; recovery treats a missing enqueued_at as unsent and a
+        # duplicate message is a no-op (claim needs `queued`), so a failure here must not fail the upload.
+        try:
+            probe.enqueued_at = datetime.now(UTC)
+            session.commit()
+        except SQLAlchemyError:
+            session.rollback()
+            logger.warning(
+                "could not record enqueued_at for job %s; recovery may resend it", job.id
+            )
     return asset, job

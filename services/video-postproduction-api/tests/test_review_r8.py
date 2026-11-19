@@ -122,6 +122,6 @@ def test_render_env_escapes_dollar_for_compose_but_not_for_docker_run(tmp_path) 
         {"POSTGRES_PASSWORD": "a$HOME", "RESTIC_PASSWORD": "r$x", "STUDIO_PUBLIC_HOST": "h", "TS_AUTHKEY": "k"}
     )
     module.write(tmp_path, values)
-    assert "POSTGRES_PASSWORD=a$$HOME" in (tmp_path / "postgres.env").read_text()
+    assert "POSTGRES_PASSWORD='a$HOME'" in (tmp_path / "postgres.env").read_text()
     assert "RESTIC_PASSWORD=r$x" in (tmp_path / "backup.env").read_text()
     assert oct((tmp_path / "postgres.env").stat().st_mode & 0o777) == "0o600"

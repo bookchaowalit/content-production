@@ -33,7 +33,8 @@ DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "alembic.ini"
 
 def _current_revision(database_url: str) -> str | None:
     _ensure_sqlite_parent(database_url)
-    engine = create_engine(database_url)
+    connect_args = {"connect_timeout": 5} if database_url.startswith("postgresql") else {}
+    engine = create_engine(database_url, connect_args=connect_args)
     try:
         with engine.connect() as connection:
             return MigrationContext.configure(connection).get_current_revision()
@@ -69,12 +70,14 @@ def wait_for_schema(
     timeout: float = 300,
     interval: float = 5,
     sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> str:
     """SPEC-001 R-SCHEMA-WAIT: block until the database is at this image's head (or newer); ``ready`` / ``timeout``."""
 
     script = ScriptDirectory.from_config(Config(str(config_path)))
     head = script.get_current_head()
     waited = 0.0
+    started = clock()
     while True:
         try:
             current = _current_revision(get_settings().database_url)
@@ -89,7 +92,8 @@ def wait_for_schema(
                 known = False
             if not known:
                 return "ready"  # newer release's schema; additive, so this image can run on it
-        if waited >= timeout:
+        # Count wall time too: a hanging connection attempt must not stretch the wait (review R10).
+        if waited >= timeout or clock() - started >= timeout:
             logger.error("schema_not_ready: database at %s, this worker needs %s", current, head)
             return "timeout"
         sleep(interval)
