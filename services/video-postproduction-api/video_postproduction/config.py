@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     job_lease_seconds: int = Field(default=900, gt=0)
     # SPEC-001 R-LEASE: a running stage refreshes its heartbeat this often; a heartbeat older than the timeout
     # lets recovery take the stage over.
-    stage_heartbeat_seconds: int = Field(default=60, ge=0)
+    stage_heartbeat_seconds: float = Field(default=60, ge=0)
     stage_lease_timeout_seconds: int = Field(default=180, gt=0)
     # recover_jobs runs at API start and then this often; 0 turns the loop off (tests, one-off commands).
     job_recovery_interval_seconds: int = Field(default=300, ge=0)

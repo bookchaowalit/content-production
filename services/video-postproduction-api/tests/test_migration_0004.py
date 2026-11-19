@@ -143,6 +143,7 @@ def _seed_old_rows(connection) -> dict[str, UUID]:
             "queued",
             "running",
             "finished",
+            "retx",
             "render_job",
             "render",
             "edl",
@@ -214,6 +215,9 @@ def _seed_old_rows(connection) -> dict[str, UUID]:
     job("finished", "ingest", "running")
     stage("finished", "probe", "succeeded")
     stage("finished", "transcribe", "succeeded")
+    # Accurate retranscription with the same two-commit gap.
+    job("retx", "retranscription", "running")
+    stage("retx", "transcribe", "succeeded")
     # Render whose output row committed succeeded before stage and job (fact 13).
     job("render_job", "render", "running")
     stage("render_job", "render", "running")
@@ -287,6 +291,7 @@ def test_0004_adds_columns_and_repairs_old_rows(alembic_config, database_url) ->
             assert running["transcribe"].status == "blocked"
 
             assert _job_status(connection, ids["finished"]) == "succeeded"
+            assert _job_status(connection, ids["retx"]) == "succeeded"
 
             render_stage = _stage_rows(connection, ids["render_job"])["render"]
             assert render_stage.status == "succeeded"

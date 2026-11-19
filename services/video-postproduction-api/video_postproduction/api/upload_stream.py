@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from anyio import to_thread
+from python_multipart.exceptions import MultipartParseError
 from python_multipart.multipart import MultipartParser, parse_options_header
 
 FILE_FIELD = b"file"
@@ -35,6 +36,14 @@ class FileTooLarge(UploadStreamError):
 
 class MissingFilePart(UploadStreamError):
     pass
+
+
+class InvalidMultipart(UploadStreamError):
+    """The parser refused the body (bad framing, too many or too large part headers)."""
+
+
+class IncompleteBody(UploadStreamError):
+    """The stream ended before the closing multipart boundary."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +67,10 @@ class _Collector:
         self._headers: dict[bytes, bytes] = {}
         self._field = b""
         self._value = b""
+        self.ended = False
+
+    def on_end(self) -> None:
+        self.ended = True
 
     def on_part_begin(self) -> None:
         self._headers = {}
@@ -133,8 +146,10 @@ async def receive_file(
             "on_headers_finished": collector.on_headers_finished,
             "on_part_data": collector.on_part_data,
             "on_part_end": collector.on_part_end,
+            "on_end": collector.on_end,
         },
     )
+    # python-multipart (>= 0.0.34) caps each part's headers (count 8, 4224 bytes), so header buffers stay small.
     descriptor, name = tempfile.mkstemp(dir=temp_dir, prefix="upload-", suffix=".part")
     path = Path(name)
     handle = os.fdopen(descriptor, "wb")
@@ -146,7 +161,10 @@ async def receive_file(
             body_bytes += len(chunk)
             if body_bytes > max_body_bytes:
                 raise BodyTooLarge("the request body exceeds the maximum size")
-            parser.write(chunk)
+            try:
+                parser.write(chunk)
+            except MultipartParseError as exc:
+                raise InvalidMultipart(str(exc)) from None
             if collector.pending:
                 data = b"".join(collector.pending)
                 collector.pending.clear()
@@ -158,6 +176,8 @@ async def receive_file(
         parser.finalize()
         if not collector.seen_file or collector.filename is None:
             raise MissingFilePart("no file part named 'file'")
+        if not collector.ended:
+            raise IncompleteBody("the body ended before the closing boundary")
         await to_thread.run_sync(_finish, handle)
         return ReceivedFile(
             path=path,
@@ -167,6 +187,10 @@ async def receive_file(
             sha256=digest.hexdigest(),
         )
     except BaseException:
-        handle.close()
-        path.unlink(missing_ok=True)
+        try:
+            handle.close()
+        except OSError:
+            pass  # a failed flush on a full disk must not keep the partial file
+        finally:
+            path.unlink(missing_ok=True)
         raise

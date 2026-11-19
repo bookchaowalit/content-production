@@ -21,6 +21,7 @@ from alembic.util.exc import CommandError
 from sqlalchemy import create_engine
 
 from .config import get_settings
+from .db import _ensure_sqlite_parent
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "alembic.ini"
 
 
 def _current_revision(database_url: str) -> str | None:
+    _ensure_sqlite_parent(database_url)
     engine = create_engine(database_url)
     try:
         with engine.connect() as connection:

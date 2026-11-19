@@ -71,3 +71,16 @@ def test_newer_schema_starts_without_migrating(database_url, caplog) -> None:
         assert migrate.run(str(CONFIG_PATH)) == "schema_newer_than_code"
     assert _current_revision(database_url) == "9999_from_a_newer_release"
     assert any("schema_newer_than_code" in record.getMessage() for record in caplog.records)
+
+
+def test_sqlite_in_a_missing_directory_is_created(monkeypatch, tmp_path) -> None:
+    url = f"sqlite:///{(tmp_path / 'new' / 'dir' / 'db.sqlite').as_posix()}"
+    monkeypatch.chdir(CONFIG_PATH.parent)
+    monkeypatch.setenv("DATABASE_URL", url)
+    monkeypatch.setattr(logging.config, "fileConfig", lambda *args, **kwargs: None)
+    get_settings.cache_clear()
+    try:
+        assert migrate.run(str(CONFIG_PATH)) == "upgraded"
+    finally:
+        get_settings.cache_clear()
+    assert _current_revision(url) == _head()

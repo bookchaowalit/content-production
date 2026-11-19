@@ -82,7 +82,7 @@ def upgrade() -> None:
         .values(heartbeat_at=now)
     )
 
-    # Ingest job whose last stage succeeded but whose own commit never happened (fact 19).
+    # Ingest or retranscription job whose last stage succeeded but whose own commit never happened (fact 19).
     last_done = (
         sa.select(sa.literal(1))
         .where(
@@ -94,7 +94,7 @@ def upgrade() -> None:
     )
     connection.execute(
         jobs.update()
-        .where(jobs.c.kind == "ingest", jobs.c.status == "running", last_done)
+        .where(jobs.c.kind.in_(("ingest", "retranscription")), jobs.c.status == "running", last_done)
         .values(status="succeeded", finished_at=now)
     )
 

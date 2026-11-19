@@ -75,3 +75,13 @@ Findings that change the implementation (spec text already allows them):
    R-TS-5: no middleware on `/api/v1/`.
 3. The first throttled run returned 408 for both servers because the fake API was itself a Node server with the
    300 s default; uvicorn has no such limit, but the E2E test (AC-13) must use the real API.
+
+## Review R7 fixes — 2026-11-19
+
+- **Red** (new tests before the fixes): `test_retranscription_job_runs_without_a_probe_stage`,
+  `test_recovery_leaves_render_stages_alone`, `test_takeover_is_refused_when_the_worker_finished_meanwhile`,
+  `test_heartbeat_thread_keeps_a_long_stage_alive`, the retranscription seed in `test_migration_0004`,
+  `test_body_without_the_closing_boundary_is_refused`, `test_oversized_part_headers_are_refused`,
+  `test_sqlite_in_a_missing_directory_is_created` — all failed.
+- **Green**: fixes listed in `review-R7.md` #1–#11. Full API suite 194 passed, 4 skipped; migration tests pass on
+  Postgres 16 again.

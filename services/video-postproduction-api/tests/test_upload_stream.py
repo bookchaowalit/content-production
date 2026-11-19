@@ -10,7 +10,9 @@ import pytest
 from video_postproduction.api.upload_stream import (
     BodyTooLarge,
     FileTooLarge,
+    IncompleteBody,
     MissingFilePart,
+    UploadStreamError,
     receive_file,
 )
 
@@ -80,3 +82,21 @@ async def test_missing_file_part_is_refused(tmp_path) -> None:
 async def test_not_multipart_is_refused(tmp_path) -> None:
     with pytest.raises(MissingFilePart):
         await receive_file(chunks(b"raw"), "application/octet-stream", tmp_path, max_file_bytes=10, max_body_bytes=10)
+
+
+@pytest.mark.asyncio
+async def test_body_without_the_closing_boundary_is_refused(tmp_path) -> None:
+    body = multipart(("file", "clip.mp4", "video/mp4", b"x" * 100))
+    truncated = body[: body.index(b"\r\n--" + BOUNDARY.encode() + b"--")]
+    with pytest.raises(IncompleteBody):
+        await receive_file(chunks(truncated), HEADER, tmp_path, max_file_bytes=10_000, max_body_bytes=10_000)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_oversized_part_headers_are_refused(tmp_path) -> None:
+    head = f"--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.mp4\"\r\n".encode()
+    body = head + b"X-Pad: " + b"p" * 10_000 + b"\r\n\r\nxx\r\n" + f"--{BOUNDARY}--\r\n".encode()
+    with pytest.raises(UploadStreamError):
+        await receive_file(chunks(body, 512), HEADER, tmp_path, max_file_bytes=10_000, max_body_bytes=100_000)
+    assert list(tmp_path.iterdir()) == []

@@ -6,8 +6,8 @@ Standard: ADR-0004 — TDD + SDD.
 
 | Field | Value |
 |---|---|
-| Spec ID / version | SPEC-001 / 1.0 |
-| Status | **Approved** by the owner 2026-11-19 ("อนุมัติ เริ่ม P1") after nine review rounds (v0.1–v0.10, logs below); D7 decided as recommended |
+| Spec ID / version | SPEC-001 / 1.1 |
+| Status | **Approved** by the owner 2026-11-19 ("อนุมัติ เริ่ม P1"); v1.1 = implementation clarifications from the spike and review R7 (no scope change) |
 | Repository / path | bookchaowalit/content-production / `specs/001-video-studio-hosted/spec.md` |
 | Owner (maker) | Claude Code |
 | Reviewer (checker) | Fresh Claude reviewer subagent (no maker context) + Codex at Stop |
@@ -16,7 +16,7 @@ Standard: ADR-0004 — TDD + SDD.
 | Related docs | `PRODUCT.md`; `services/video-postproduction/README.md`; `services/video-postproduction-api/README.md`; `apps/video-postproduction-desktop/` (`scripts/runtime-bundle-manifest.js`, `src/runtime/compose.js`, `src/security/studio-csp.js`); ADR-0004, ADR-0007, ADR-0014; PRJ-DSO-02; `platform-uptime-worker` `src/targets.ts` |
 | Main-only | no — branch `spec/video-studio-hosted`, then `feat/video-studio-hosted` |
 | Created / approved | 2026-11-18 / 2026-11-19 |
-| Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md`, `review-R3b.md`, `review-R3c.md`, `review-R4.md`, `review-R5.md`, `review-R6.md` |
+| Review log | `review-R1.md`, `review-R2.md`, `review-R3a.md`, `review-R3b.md`, `review-R3c.md`, `review-R4.md`, `review-R5.md`, `review-R6.md`, `review-R7.md` |
 
 ## 1. Problem and intent
 
@@ -126,9 +126,11 @@ Standard: ADR-0004 — TDD + SDD.
   passed through, by Serve — if it is passed through, go-live **stops** and the spec is revised with the owner
   (there is no silent fallback) — which `Host` value Serve forwards (R-PROXY-6a is set to match it), and that
   `tailscale status --json` finds the socket inside the container.
-- **R-TS-5** All checks (identity, `Host`, same-origin) run inside the route handler and the root layout /
-  `instrumentation.ts`, **not** in Next middleware or `proxy.ts`, so no request body passes a middleware body
-  limit. The spike runs with every check enabled.
+- **R-TS-5** All checks (identity, `Host`, same-origin, raw path) run in `server-launch.mjs` at the HTTP entry,
+  before Next renders anything, for every request except `/healthz` (which gets only the `Host` check): a page
+  request without the owner identity gets a plain 401, not a rendered page. The proxy route handler re-checks
+  identity and same-origin for `/api/v1/` as defence in depth. Nothing runs in Next middleware or `proxy.ts`, which
+  buffer request bodies (Next docs `proxyClientMaxBodySize`, default 10 MB; confirmed by the spike).
 - **R-TS-4** `STUDIO_ACCESS_MODE` is `tailscale` (prod overlay) or `off` (base Compose file and a committed
   `.env.development` with `VIDEO_POSTPRODUCTION_API_INTERNAL_URL=http://127.0.0.1:8000` for `npm run dev`; Next
   loads that file only in development). With `tailscale`, `STUDIO_OWNER_LOGIN` and `STUDIO_PUBLIC_HOST` must be set
@@ -154,7 +156,17 @@ Standard: ADR-0004 — TDD + SDD.
 - **R-PROXY-3** Forwarded request headers: `content-type`, `content-length`, `range`, `if-range`, `if-none-match`,
   `accept`. Returned headers: `content-type`, `content-length`, `content-range`, `accept-ranges`,
   `content-disposition`, `etag`, `retry-after`, `x-request-id`. Everything else is dropped in both directions.
-- **R-PROXY-4** Every proxied response sets `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff`.
+- **R-PROXY-4** Every proxied response sets `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`
+  and `Content-Security-Policy: sandbox; default-src 'none'`. Only these upstream content types pass through:
+  `application/json`, `video/*`, `audio/*`, `image/png`, `image/jpeg`, `text/plain`; anything else (for example
+  Markdown or XML job files) is returned as `application/octet-stream` with `Content-Disposition: attachment`, so
+  no proxied file can run script in the studio origin.
+- **R-PROXY-9** Proxy mechanics (from the spike, `red-green.md`): requests go upstream with `node:http` (keeps
+  `Content-Length` on a streamed body, no undici 300 s body timeout); a client abort or a failed response stream
+  destroys the upstream request; an upstream socket error or timeout destroys both sides and answers 502 if no
+  headers were sent; a HEAD answer is `new Response(null, …)`. The launcher sets `requestTimeout` 2 h and an
+  inactivity timeout (`server.timeout`) of 10 min, so a stalled client is dropped while a slow but moving upload
+  continues. Images run as uid **and** gid 10001.
 - **R-PROXY-5** `server-launch.mjs` checks the **raw `req.url`** of every request under `/api/` at the HTTP entry,
   before Next sees it: `..`, `%2e`, `%2f`, `%5c` or NUL → 400 `invalid_path` and the request never reaches Next or
   the API. The route handler then builds the upstream URL on a fixed base from decoded segments; each must match `^[A-Za-z0-9_.-]+$`
@@ -182,13 +194,13 @@ Standard: ADR-0004 — TDD + SDD.
   multipart body to the container's `/tmp` before any check runs). It reads `request.stream()` with a streaming
   multipart parser (`python-multipart`'s callback `MultipartParser`) and writes the file part straight into
   `STORAGE_ROOT/tmp/` while hashing; one copy, then FFprobe, then one transaction inserts asset, job and stages.
-  Before reading the body, at the start of the handler: no `Content-Length` → 411 (if the spike shows undici
-  cannot send it, chunked bodies are accepted and `MAX_UPLOAD_BYTES` is used as the estimate); `Content-Length >
+  Before reading the body, at the start of the handler: no `Content-Length` → 411 (the spike confirmed the proxy forwards it, so there is no chunked fallback); `Content-Length >
   MAX_UPLOAD_BYTES` + 1 MiB of multipart overhead → 413; then an **in-process reservation** (one API replica;
   a lock-protected sum of the bytes reserved by uploads in progress): `free − reserved − Content-Length ≥ 20 %`
   of the volume, else 507 `insufficient_storage`. While streaming, the **whole request body** (all multipart parts) is counted against `MAX_UPLOAD_BYTES` + 1 MiB
-  and the file part against `MAX_UPLOAD_BYTES`; passing either → 413 and the temp file is deleted. A chunked body
-  (no `Content-Length`, only if the spike forces the fallback) reserves that same whole-body cap. The reservation is released when the request ends. The transcription budget
+  and the file part against `MAX_UPLOAD_BYTES`; passing either → 413 and the temp file is deleted. A body that ends before
+  the closing multipart boundary, or whose part headers exceed the parser's limits, → 400 and the temp file is
+  deleted. The reservation is released when the request ends. The transcription budget
   is **reserved** atomically before reading (in-process, like the disk reservation), confirmed after the ingest
   commit and released on any failure (a 411/413/422/507 or an unreadable file costs nothing; with one unit left only
   one of two concurrent uploads proceeds). A failure deletes the temp file and leaves no row. Each upload in progress registers its temp path in `STORAGE_ROOT/tmp/active/<id>`, touched every 60 s by a timer
@@ -208,7 +220,10 @@ Standard: ADR-0004 — TDD + SDD.
   `enqueued_at`. A failed enqueue leaves the stage `queued` with `enqueued_at = NULL`; the job is **not** marked
   failed (the `queue_error` path is removed) and the API answers 202. The worker claims with a conditional update
   `queued → running` that also requires the previous stage `succeeded`, so a duplicate or early message is a no-op.
-- **R-LEASE** Each claim writes a new `processing_stages.lease_token`. Every later worker write for that stage —
+- **R-LEASE** Each claim writes a new `processing_stages.lease_token` and the first `heartbeat_at` in the same
+  conditional update. Ordering and leases apply to ingest (`probe` → `transcribe`) and retranscription
+  (`transcribe` only) jobs; render stages join when `RenderService` takes leases, and until then recovery leaves
+  them alone. Every later worker write for that stage —
   heartbeat, output rows, finish, hand-off, failure — is a conditional update `WHERE id = <stage> AND status =
   'running' AND lease_token = <mine>`; when it matches no row the worker stops and discards its work. Output files
   are written under an attempt-scoped path (`…/attempt-<lease_token>/`) and moved to their final key only after a
@@ -228,7 +243,8 @@ Standard: ADR-0004 — TDD + SDD.
   waiting for its current task up to 30 min, then `kill`), then starts the new API (migrate), then the new worker;
   `scripts/studio/update.sh` does this for every release and is the only documented update path (R-REL-1). The
   desktop runtime's rebuild/recovery action (`src/runtime/manager.js`, today `up --detach --build`) also stops the
-  worker before `up`. Recovery rule (c) covers any path that still skips this. Messages left in Redis by the old worker are harmless
+  worker before `up`. After the API is healthy, `update.sh` starts the new worker and recreates `web` (and
+  `tailscale` when its image changed) from the same tag, so web and API never run different releases. Recovery rule (c) covers any path that still skips this. Messages left in Redis by the old worker are harmless
   because the new claim checks stage state and recovery re-sends `queued` stages. Test: upgrade a stack from
   b2f126a with a job in `probe` and one queued in Redis; both finish.
 - **R-SCHEMA-WAIT** The worker `depends_on` the API with `condition: service_healthy` (healthy only after migrate),
@@ -240,7 +256,8 @@ Standard: ADR-0004 — TDD + SDD.
   created with `:retry<n+1>`. So the owner can render the same EDL version again after a failure, a lease expiry or
   a restore, and repeated requests never create duplicates. `POST /jobs/{job_id}/retry` on a render job goes
   through the same locked lookup: if a newer render of the family exists it answers 409 `render_superseded`;
-  otherwise it retries that job in place.
+  otherwise it retries that job in place, setting the job, its stage and its `render_outputs` row back to
+  `queued` / `retry_queued` in one commit.
 - **R-QUALITY** API setting `TRANSCRIPTION_QUALITIES` (default `fast,accurate`). `GET /transcription/capabilities`
   adds `qualities`. A quality not listed → 422 `quality_unavailable` on create, retranscribe, upload into a project
   whose stored quality is not listed, and retry. The worker checks again before loading a model and fails the stage

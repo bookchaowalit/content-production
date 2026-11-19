@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
@@ -36,8 +39,20 @@ from .queue import JobQueue
 _logger = logging.getLogger(__name__)
 
 # Ingest stage order (SPEC-001 R-QUEUE): a stage may start only after the previous one succeeded.
+# A retranscription job has only the transcribe stage, so the order applies to ingest jobs.
 PREVIOUS_STAGE = {"transcribe": "probe"}
 NEXT_STAGE = {"probe": "transcribe"}
+ORDERED_KINDS = frozenset({"ingest"})
+# Job kinds whose stages take leases; render stages join once RenderService uses leases.
+LEASED_KINDS = frozenset({"ingest", "retranscription"})
+
+
+def previous_stage(job_kind: str, stage_name: str) -> str | None:
+    return PREVIOUS_STAGE.get(stage_name) if job_kind in ORDERED_KINDS else None
+
+
+def next_stage(job_kind: str, stage_name: str) -> str | None:
+    return NEXT_STAGE.get(stage_name) if job_kind in ORDERED_KINDS else None
 
 
 class LeaseLost(Exception):
@@ -118,7 +133,7 @@ class StageRunner:
     def _claim(self, job: ProcessingJob, stage: ProcessingStage) -> str | None:
         """Take the stage lease with a conditional update; None when the stage is not ready to run."""
 
-        previous = PREVIOUS_STAGE.get(stage.name)
+        previous = previous_stage(job.kind, stage.name)
         if previous is not None and self._get_stage(job.id, previous).status != "succeeded":
             return None
         token = str(uuid4())
@@ -170,6 +185,49 @@ class StageRunner:
             )
             raise LeaseLost(stage.name)
 
+    @contextmanager
+    def _heartbeat(self, stage: ProcessingStage, token: str) -> Iterator[threading.Event]:
+        """Refresh the lease heartbeat from a separate session while slow work runs (SPEC-001 R-LEASE).
+
+        The yielded event is set when the lease was lost; the caller then stops before writing anything.
+        """
+
+        lost = threading.Event()
+        interval = self.settings.stage_heartbeat_seconds
+        if interval <= 0:
+            yield lost
+            return
+        stop = threading.Event()
+        bind = self.session.get_bind()
+
+        def beat() -> None:
+            while not stop.wait(interval):
+                try:
+                    with Session(bind) as other:
+                        held = other.execute(
+                            update(ProcessingStage)
+                            .where(
+                                ProcessingStage.id == stage.id,
+                                ProcessingStage.status == "running",
+                                ProcessingStage.lease_token == token,
+                            )
+                            .values(heartbeat_at=_now())
+                        )
+                        other.commit()
+                    if held.rowcount != 1:
+                        lost.set()
+                        return
+                except Exception:  # noqa: BLE001 - a missed beat is retried; recovery tolerates 3 misses
+                    _logger.warning("heartbeat for stage %s failed", stage.id)
+
+        thread = threading.Thread(target=beat, name=f"heartbeat-{stage.name}", daemon=True)
+        thread.start()
+        try:
+            yield lost
+        finally:
+            stop.set()
+            thread.join(interval + 5)
+
     def _finish_stage(
         self, job: ProcessingJob, stage: ProcessingStage, token: str, *, progress: int
     ) -> ProcessingStage | None:
@@ -186,7 +244,7 @@ class StageRunner:
         job.error_code = None
         job.error_message = None
         following = None
-        next_name = NEXT_STAGE.get(stage.name)
+        next_name = next_stage(job.kind, stage.name)
         if next_name is not None:
             following = self._get_stage(job.id, next_name)
             if following.status == "blocked":
@@ -257,7 +315,12 @@ class StageRunner:
                 )
                 return
             try:
-                metadata = self.probe_reader.read(self.storage.local_path(asset.storage_key))
+                with self._heartbeat(stage, token) as lost:
+                    metadata = self.probe_reader.read(self.storage.local_path(asset.storage_key))
+                if lost.is_set():
+                    raise LeaseLost(stage.name)
+            except LeaseLost:
+                raise
             except MediaProbeError as exc:
                 self._fail_stage(
                     job,
@@ -370,11 +433,16 @@ class StageRunner:
             return
         try:
             metadata = _metadata_from_json(asset.metadata_json)
-            transcript = self.transcription_provider.transcribe(
-                self.storage.local_path(asset.storage_key),
-                metadata,
-                language=self.settings.transcription_language,
-            )
+            with self._heartbeat(stage, token) as lost:
+                transcript = self.transcription_provider.transcribe(
+                    self.storage.local_path(asset.storage_key),
+                    metadata,
+                    language=self.settings.transcription_language,
+                )
+            if lost.is_set():
+                raise LeaseLost(stage.name)
+            # Re-check (and lock) the lease before reading or writing any transcript rows.
+            self._guard(stage, token)
             fingerprint = self._transcript_fingerprint(asset, transcript)
             persisted_transcript = self.session.scalar(
                 select(Transcript).where(
@@ -471,12 +539,12 @@ class StageRunner:
         stage.error_message = None
         stage.finished_at = None
         stage.enqueued_at = None
-        following = NEXT_STAGE.get(stage_name)
+        following = next_stage(job.kind, stage_name)
         while following is not None:
             later = self._get_stage(job_id, following)
             if later.status == "skipped":
                 later.status = "blocked"
-            following = NEXT_STAGE.get(following)
+            following = next_stage(job.kind, following)
         job.status = "retry_queued"
         job.error_code = None
         job.error_message = None

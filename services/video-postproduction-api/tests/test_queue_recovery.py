@@ -229,3 +229,112 @@ def test_failing_provider_marks_the_job_failed_once(session, tmp_path) -> None:
     assert stage(session, job, "transcribe").status == "failed"
     assert stage(session, job, "transcribe").lease_token is None
     assert job.status == "failed"
+
+
+def test_retranscription_job_runs_without_a_probe_stage(session, tmp_path) -> None:
+    _, asset, storage = make_asset(session, tmp_path)
+    asset.metadata_json = {"duration": 2, "video": {"width": 320, "height": 240, "fps": 30}}
+    job = ProcessingJob(
+        project_id=asset.project_id,
+        asset_id=asset.id,
+        kind="retranscription",
+        status="queued",
+        idempotency_key=f"retranscription:{asset.id}",
+    )
+    session.add(job)
+    session.flush()
+    session.add(ProcessingStage(job_id=job.id, name="transcribe", status="queued"))
+    session.commit()
+    runner(session, storage).run_transcribe(job.id)
+    session.refresh(job)
+    assert stage(session, job, "transcribe").status == "succeeded"
+    assert job.status == "succeeded"
+
+
+def test_stalled_worker_writes_no_transcript_rows(session, tmp_path) -> None:
+    from video_postproduction.models import Transcript
+
+    _, asset, storage = make_asset(session, tmp_path)
+    asset.metadata_json = {"duration": 2, "video": {"width": 320, "height": 240, "fps": 30}}
+    job = ingest_job(session, asset, probe="succeeded", transcribe="queued", job_status="running")
+
+    class StallingProvider(WorkingProvider):
+        def transcribe(self, audio_path, metadata, language=None):
+            later = datetime.now(UTC) + timedelta(minutes=10)
+            recover_jobs(session, Settings(max_stage_attempts=3), RecordingQueue(), now=later)
+            return super().transcribe(audio_path, metadata, language)
+
+    runner(session, storage, provider=StallingProvider()).run_transcribe(job.id)
+    assert session.query(Transcript).count() == 0
+
+
+def test_recovery_leaves_render_stages_alone(session, tmp_path) -> None:
+    _, asset, _ = make_asset(session, tmp_path)
+    job = ProcessingJob(
+        project_id=asset.project_id,
+        asset_id=asset.id,
+        kind="render",
+        status="running",
+        idempotency_key=f"render:{asset.id}",
+    )
+    session.add(job)
+    session.flush()
+    session.add(ProcessingStage(job_id=job.id, name="render", status="running"))  # no lease yet
+    session.commit()
+    recover_jobs(session, Settings(), RecordingQueue(), now=datetime.now(UTC) + timedelta(hours=1))
+    session.refresh(job)
+    assert stage(session, job, "render").status == "running"
+    assert job.status == "running"
+
+
+def test_takeover_is_refused_when_the_worker_finished_meanwhile(session, tmp_path) -> None:
+    from video_postproduction.jobs.recovery import take_over_stale_stage
+
+    _, asset, _ = make_asset(session, tmp_path)
+    job = ingest_job(session, asset, probe="running", job_status="running")
+    probe = stage(session, job, "probe")
+    probe.lease_token = "old"
+    probe.heartbeat_at = datetime.now(UTC) - timedelta(minutes=10)
+    session.commit()
+    seen_token, seen_heartbeat = probe.lease_token, probe.heartbeat_at
+    # The worker commits its result after recovery read the row but before recovery writes.
+    probe.status = "succeeded"
+    probe.lease_token = None
+    session.commit()
+
+    assert take_over_stale_stage(session, probe.id, seen_token, seen_heartbeat, retry=True) is False
+    session.commit()
+    assert stage(session, job, "probe").status == "succeeded"
+
+
+def test_heartbeat_thread_keeps_a_long_stage_alive(tmp_path) -> None:
+    import time
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session as OrmSession
+
+    from video_postproduction.db import Base
+
+    engine = create_engine(f"sqlite:///{(tmp_path / 'hb.db').as_posix()}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    with OrmSession(engine, expire_on_commit=False) as session:
+        _, asset, storage = make_asset(session, tmp_path)
+        asset.metadata_json = {"duration": 2, "video": {"width": 320, "height": 240, "fps": 30}}
+        job = ingest_job(session, asset, probe="succeeded", transcribe="queued", job_status="running")
+        beats: list[datetime] = []
+
+        class SlowProvider(WorkingProvider):
+            def transcribe(self, audio_path, metadata, language=None):
+                time.sleep(0.4)
+                with OrmSession(engine) as other:
+                    beats.append(other.get(ProcessingStage, stage(session, job, "transcribe").id).heartbeat_at)
+                return super().transcribe(audio_path, metadata, language)
+
+        runner(session, storage, provider=SlowProvider(), settings=Settings(stage_heartbeat_seconds=0.1)).run_transcribe(
+            job.id
+        )
+        claimed = stage(session, job, "transcribe").started_at
+        assert stage(session, job, "transcribe").status == "succeeded"
+    engine.dispose()
+    assert beats and beats[0] is not None
+    assert beats[0].replace(tzinfo=None) > claimed.replace(tzinfo=None)
