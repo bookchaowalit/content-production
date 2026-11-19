@@ -8,9 +8,9 @@ import logging
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..config import Settings
@@ -34,6 +34,14 @@ from ..transcription.models import NormalizedTranscript, TranscriptValidationErr
 from .queue import JobQueue
 
 _logger = logging.getLogger(__name__)
+
+# Ingest stage order (SPEC-001 R-QUEUE): a stage may start only after the previous one succeeded.
+PREVIOUS_STAGE = {"transcribe": "probe"}
+NEXT_STAGE = {"probe": "transcribe"}
+
+
+class LeaseLost(Exception):
+    """Raised when this worker no longer holds the stage lease (SPEC-001 R-LEASE); nothing may be written."""
 
 
 def _now() -> datetime:
@@ -107,49 +115,121 @@ class StageRunner:
             raise ValueError(f"processing stage not found: {stage_name}")
         return stage
 
-    def _start_stage(self, job: ProcessingJob, stage: ProcessingStage) -> bool:
-        if stage.status == "succeeded":
-            return False
-        stage.status = "running"
-        stage.attempt += 1
-        stage.started_at = _now()
-        stage.finished_at = None
-        stage.error_code = None
-        stage.error_message = None
+    def _claim(self, job: ProcessingJob, stage: ProcessingStage) -> str | None:
+        """Take the stage lease with a conditional update; None when the stage is not ready to run."""
+
+        previous = PREVIOUS_STAGE.get(stage.name)
+        if previous is not None and self._get_stage(job.id, previous).status != "succeeded":
+            return None
+        token = str(uuid4())
+        now = _now()
+        claimed = self.session.execute(
+            update(ProcessingStage)
+            .where(ProcessingStage.id == stage.id, ProcessingStage.status == "queued")
+            .values(
+                status="running",
+                lease_token=token,
+                attempt=ProcessingStage.attempt + 1,
+                started_at=now,
+                heartbeat_at=now,
+                finished_at=None,
+                error_code=None,
+                error_message=None,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount != 1:
+            self.session.rollback()
+            return None
         job.status = "running"
-        job.started_at = job.started_at or stage.started_at
+        job.started_at = job.started_at or now
         job.error_code = None
         job.error_message = None
         self.session.commit()
+        self.session.refresh(stage)
         emit_job_event("stage_started", job_id=job.id, stage=stage.name, status=stage.status)
-        return True
+        return token
 
-    def _finish_stage(self, job: ProcessingJob, stage: ProcessingStage, *, progress: int) -> None:
+    def _guard(self, stage: ProcessingStage, token: str) -> None:
+        """Re-check the lease inside the current transaction; the row stays locked until commit."""
+
+        held = self.session.execute(
+            update(ProcessingStage)
+            .where(
+                ProcessingStage.id == stage.id,
+                ProcessingStage.status == "running",
+                ProcessingStage.lease_token == token,
+            )
+            .values(heartbeat_at=_now())
+            .execution_options(synchronize_session=False)
+        )
+        if held.rowcount != 1:
+            self.session.rollback()
+            emit_job_event(
+                "stage_lease_lost", job_id=stage.job_id, stage=stage.name, status="lease_lost"
+            )
+            raise LeaseLost(stage.name)
+
+    def _finish_stage(
+        self, job: ProcessingJob, stage: ProcessingStage, token: str, *, progress: int
+    ) -> ProcessingStage | None:
+        """Finish a stage and hand off to the next one (or finish the job) in one guarded commit."""
+
+        self._guard(stage, token)
+        now = _now()
         stage.status = "succeeded"
-        stage.finished_at = _now()
+        stage.finished_at = now
+        stage.lease_token = None
         stage.error_code = None
         stage.error_message = None
         job.progress = progress
         job.error_code = None
         job.error_message = None
+        following = None
+        next_name = NEXT_STAGE.get(stage.name)
+        if next_name is not None:
+            following = self._get_stage(job.id, next_name)
+            if following.status == "blocked":
+                following.status = "queued"
+                following.enqueued_at = None
+        else:
+            job.status = "succeeded"
+            job.finished_at = now
         self.session.commit()
         emit_job_event("stage_finished", job_id=job.id, stage=stage.name, status=stage.status)
+        return following if following is not None and following.status == "queued" else None
+
+    def _send(self, job: ProcessingJob, stage: ProcessingStage) -> None:
+        """Enqueue after the commit; a failure leaves ``enqueued_at`` empty for recovery (R-QUEUE)."""
+
+        if self.queue is None:
+            return
+        try:
+            self.queue.enqueue(job.id, stage.name)
+        except Exception:  # noqa: BLE001 - broker errors are recovered by recover_jobs
+            _logger.warning(
+                "enqueue of %s for job %s failed; recovery will resend it", stage.name, job.id
+            )
+            return
+        self.session.execute(
+            update(ProcessingStage)
+            .where(ProcessingStage.id == stage.id, ProcessingStage.status == "queued")
+            .values(enqueued_at=_now())
+            .execution_options(synchronize_session=False)
+        )
+        self.session.commit()
 
     def _fail_stage(
         self,
         job: ProcessingJob,
         stage: ProcessingStage,
+        token: str,
         *,
         error_code: str,
         error_message: str,
     ) -> None:
-        stage.status = "failed"
-        stage.finished_at = _now()
-        stage.error_code = error_code
-        stage.error_message = error_message
-        job.status = "failed"
-        job.error_code = error_code
-        job.error_message = error_message
+        self._guard(stage, token)
+        fail_job(self.session, job, stage, error_code=error_code, error_message=error_message)
         self.session.commit()
         emit_job_event(
             "stage_failed",
@@ -162,24 +242,48 @@ class StageRunner:
     def run_probe(self, job_id: UUID) -> None:
         job = self._get_job(job_id)
         stage = self._get_stage(job_id, "probe")
-        if not self._start_stage(job, stage):
-            return
-        asset = self.session.get(MediaAsset, job.asset_id)
-        if asset is None:
-            self._fail_stage(job, stage, error_code="asset_not_found", error_message="Media asset not found")
+        token = self._claim(job, stage)
+        if token is None:
             return
         try:
-            metadata = self.probe_reader.read(self.storage.local_path(asset.storage_key))
+            asset = self.session.get(MediaAsset, job.asset_id)
+            if asset is None:
+                self._fail_stage(
+                    job,
+                    stage,
+                    token,
+                    error_code="asset_not_found",
+                    error_message="Media asset not found",
+                )
+                return
+            try:
+                metadata = self.probe_reader.read(self.storage.local_path(asset.storage_key))
+            except MediaProbeError as exc:
+                self._fail_stage(
+                    job,
+                    stage,
+                    token,
+                    error_code="media_probe_error",
+                    error_message=exc.safe_message,
+                )
+                return
+            except Exception:  # noqa: BLE001 - convert unexpected stage failures to safe state
+                self._fail_stage(
+                    job,
+                    stage,
+                    token,
+                    error_code="stage_error",
+                    error_message="Media probe stage failed",
+                )
+                return
+            self._guard(stage, token)
             asset.metadata_json = _metadata_to_json(metadata)
             asset.status = "probed"
-            self.session.commit()
-            self._finish_stage(job, stage, progress=50)
-            if self.queue is not None:
-                self.queue.enqueue(job.id, "transcribe")
-        except MediaProbeError as exc:
-            self._fail_stage(job, stage, error_code="media_probe_error", error_message=exc.safe_message)
-        except Exception:  # noqa: BLE001 - convert unexpected stage failures to safe state
-            self._fail_stage(job, stage, error_code="stage_error", error_message="Media probe stage failed")
+            following = self._finish_stage(job, stage, token, progress=50)
+        except LeaseLost:
+            return
+        if following is not None:
+            self._send(job, following)
 
     @staticmethod
     def _transcript_fingerprint(asset: MediaAsset, transcript: NormalizedTranscript) -> str:
@@ -193,7 +297,9 @@ class StageRunner:
         return hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _initial_edl(project_id: UUID, asset: MediaAsset, metadata: MediaMetadata) -> dict[str, Any]:
+    def _initial_edl(
+        project_id: UUID, asset: MediaAsset, metadata: MediaMetadata
+    ) -> dict[str, Any]:
         duration = metadata.duration
         if duration <= 0:
             raise ValueError("media duration must be positive for an initial EDL")
@@ -242,12 +348,25 @@ class StageRunner:
     def run_transcribe(self, job_id: UUID) -> None:
         job = self._get_job(job_id)
         stage = self._get_stage(job_id, "transcribe")
-        if not self._start_stage(job, stage):
+        token = self._claim(job, stage)
+        if token is None:
             return
+        try:
+            self._run_transcribe(job, stage, token)
+        except LeaseLost:
+            return
+
+    def _run_transcribe(self, job: ProcessingJob, stage: ProcessingStage, token: str) -> None:
         asset = self.session.get(MediaAsset, job.asset_id)
         project = self.session.get(Project, job.project_id)
         if asset is None or project is None:
-            self._fail_stage(job, stage, error_code="asset_not_found", error_message="Media asset not found")
+            self._fail_stage(
+                job,
+                stage,
+                token,
+                error_code="asset_not_found",
+                error_message="Media asset not found",
+            )
             return
         try:
             metadata = _metadata_from_json(asset.metadata_json)
@@ -287,6 +406,7 @@ class StageRunner:
                             words_json=[word.model_dump(mode="json") for word in segment.words],
                         )
                     )
+            self._guard(stage, token)
             existing_edl = self.session.scalar(
                 select(EDL)
                 .where(EDL.project_id == project.id, EDL.source_asset_id == asset.id)
@@ -305,15 +425,14 @@ class StageRunner:
                 )
             asset.status = "transcribed"
             project.status = "ready_for_edit"
-            self.session.commit()
-            self._finish_stage(job, stage, progress=100)
-            job.status = "succeeded"
-            job.finished_at = _now()
-            self.session.commit()
+            self._finish_stage(job, stage, token, progress=100)
+        except LeaseLost:
+            raise
         except TranscriptionProviderError as exc:
             self._fail_stage(
                 job,
                 stage,
+                token,
                 error_code="transcription_provider_error",
                 error_message=exc.safe_message,
             )
@@ -323,13 +442,22 @@ class StageRunner:
             self._fail_stage(
                 job,
                 stage,
+                token,
                 error_code="transcript_invalid",
                 error_message=f"Transcript from provider failed validation: {exc}",
             )
-        except Exception as exc:  # convert unexpected stage failures to safe state, keeping the traceback in logs
+        except (
+            Exception
+        ) as exc:  # convert unexpected stage failures to safe state, keeping the traceback in logs
             _logger.exception("transcription stage failed unexpectedly for job %s", job.id)
             report_exception(exc)
-            self._fail_stage(job, stage, error_code="stage_error", error_message="Transcription stage failed")
+            self._fail_stage(
+                job,
+                stage,
+                token,
+                error_code="stage_error",
+                error_message="Transcription stage failed",
+            )
 
     def retry_stage(self, job_id: UUID, stage_name: str) -> ProcessingJob:
         job = self._get_job(job_id)
@@ -342,10 +470,45 @@ class StageRunner:
         stage.error_code = None
         stage.error_message = None
         stage.finished_at = None
-        job.status = "queued"
+        stage.enqueued_at = None
+        following = NEXT_STAGE.get(stage_name)
+        while following is not None:
+            later = self._get_stage(job_id, following)
+            if later.status == "skipped":
+                later.status = "blocked"
+            following = NEXT_STAGE.get(following)
+        job.status = "retry_queued"
         job.error_code = None
         job.error_message = None
+        job.finished_at = None
         self.session.commit()
-        if self.queue is not None:
-            self.queue.enqueue(job.id, stage_name)
+        self._send(job, stage)
         return job
+
+
+def fail_job(
+    session: Session,
+    job: ProcessingJob,
+    stage: ProcessingStage,
+    *,
+    error_code: str,
+    error_message: str,
+) -> None:
+    """Terminal failure in the caller's transaction: stage and job failed, later blocked stages skipped."""
+
+    now = _now()
+    stage.status = "failed"
+    stage.finished_at = now
+    stage.lease_token = None
+    stage.error_code = error_code
+    stage.error_message = error_message
+    job.status = "failed"
+    job.finished_at = now
+    job.error_code = error_code
+    job.error_message = error_message
+    for later in session.scalars(
+        select(ProcessingStage).where(
+            ProcessingStage.job_id == job.id, ProcessingStage.status == "blocked"
+        )
+    ):
+        later.status = "skipped"

@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     ffprobe_executable: str = "ffprobe"
     ffmpeg_executable: str = "ffmpeg"
     job_lease_seconds: int = Field(default=900, gt=0)
+    # SPEC-001 R-LEASE: a running stage refreshes its heartbeat this often; a heartbeat older than the timeout
+    # lets recovery take the stage over.
+    stage_heartbeat_seconds: int = Field(default=60, ge=0)
+    stage_lease_timeout_seconds: int = Field(default=180, gt=0)
     max_stage_attempts: int = Field(default=3, ge=1, le=10)
 
     @field_validator("transcription_language", mode="before")
