@@ -84,3 +84,43 @@ def test_sqlite_in_a_missing_directory_is_created(monkeypatch, tmp_path) -> None
     finally:
         get_settings.cache_clear()
     assert _current_revision(url) == _head()
+
+
+def test_worker_waits_until_the_schema_reaches_its_head(database_url) -> None:
+    from alembic import command
+
+    from video_postproduction.migrate import wait_for_schema
+
+    command.upgrade(Config(str(CONFIG_PATH)), "0003_transcription_quality")
+    checks: list[str | None] = []
+
+    def fake_sleep(_seconds: float) -> None:
+        # The API finishes its migration while the worker waits.
+        checks.append(_current_revision(database_url))
+        command.upgrade(Config(str(CONFIG_PATH)), "head")
+
+    assert wait_for_schema(str(CONFIG_PATH), timeout=60, interval=5, sleep=fake_sleep) == "ready"
+    assert checks == ["0003_transcription_quality"]
+
+
+def test_worker_accepts_a_newer_schema(database_url) -> None:
+    from video_postproduction.migrate import wait_for_schema
+
+    migrate.run(str(CONFIG_PATH))
+    engine = sa.create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text("UPDATE alembic_version SET version_num = '9999_from_a_newer_release'")
+        )
+    engine.dispose()
+    assert wait_for_schema(str(CONFIG_PATH), timeout=1, interval=1, sleep=lambda s: None) == "ready"
+
+
+def test_worker_gives_up_after_the_timeout(database_url) -> None:
+    from video_postproduction.migrate import wait_for_schema
+
+    slept: list[float] = []
+    assert (
+        wait_for_schema(str(CONFIG_PATH), timeout=10, interval=5, sleep=slept.append) == "timeout"
+    )
+    assert slept == [5, 5]

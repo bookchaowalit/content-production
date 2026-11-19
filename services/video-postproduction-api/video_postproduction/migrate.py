@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 from alembic import command
@@ -58,6 +60,36 @@ def run(config_path: str | Path = DEFAULT_CONFIG) -> str:
             return "schema_newer_than_code"
     command.upgrade(config, "head")
     return "upgraded"
+
+
+def wait_for_schema(
+    config_path: str | Path = DEFAULT_CONFIG,
+    *,
+    timeout: float = 300,
+    interval: float = 5,
+    sleep: Callable[[float], None] = time.sleep,
+) -> str:
+    """SPEC-001 R-SCHEMA-WAIT: block until the database is at this image's head (or newer); ``ready`` / ``timeout``."""
+
+    script = ScriptDirectory.from_config(Config(str(config_path)))
+    head = script.get_current_head()
+    waited = 0.0
+    while True:
+        current = _current_revision(get_settings().database_url)
+        if current == head:
+            return "ready"
+        if current is not None:
+            try:
+                known = script.get_revision(current) is not None
+            except CommandError:
+                known = False
+            if not known:
+                return "ready"  # newer release's schema; additive, so this image can run on it
+        if waited >= timeout:
+            logger.error("schema_not_ready: database at %s, this worker needs %s", current, head)
+            return "timeout"
+        sleep(interval)
+        waited += interval
 
 
 def main() -> int:

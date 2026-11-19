@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from celery import Celery  # type: ignore[import-untyped]
-from celery.signals import worker_process_init  # type: ignore[import-untyped]
+from celery.signals import worker_init, worker_process_init  # type: ignore[import-untyped]
 
 from ..config import get_settings
 from ..db import SessionLocal
@@ -40,6 +40,16 @@ def _provider(transcription_quality: str = "fast"):
     if current.transcription_provider == "openai_compatible":
         return OpenAICompatibleTranscriptionProvider(current)
     raise ValueError(f"unsupported transcription provider: {current.transcription_provider}")
+
+
+@worker_init.connect
+def on_worker_init(**_kwargs: object) -> None:
+    """SPEC-001 R-SCHEMA-WAIT: do not consume the queue before the API has migrated the database."""
+
+    from ..migrate import wait_for_schema
+
+    if wait_for_schema() != "ready":
+        raise SystemExit("database schema is not ready for this worker")
 
 
 @worker_process_init.connect

@@ -164,3 +164,21 @@ Findings that change the implementation (spec text already allows them):
   410 `media_purged`; render enqueue, accurate retranscription and retry of a purged source → 409 `source_purged`;
   probe, transcribe and render workers fail the stage with `source_purged`. Silence cut stays allowed (it edits the
   EDL from the transcript only). Full API suite: 232 passed, 4 skipped.
+
+## Worker schema wait, API image on uv + non-root (R-SCHEMA-WAIT, R-NONROOT, R-CI-2) — 2026-11-19
+
+- Tests: three `wait_for_schema` cases in `tests/test_migrate_wrapper.py`.
+- **Red**: `wait_for_schema` did not exist.
+- **Green**: `migrate.wait_for_schema` waits (5 s steps, 5 min) until the database is at this image's head or
+  newer; Celery `worker_init` refuses to start on timeout. Base Compose: worker `depends_on` API healthy, API uses
+  the image CMD (migrate wrapper, then uvicorn), cache volume at `/app/cache`.
+- API image: `uv.lock` (90 packages) with `solo-empire-production-trace` as a path source, `uv sync --frozen
+  --no-dev --no-editable --extra transcription --extra sentry`; entrypoint chowns `/app/storage` and `/app/cache`
+  once when their owner is not 10001, then `setpriv` to 10001:10001; `HF_HOME`, `PYTHAINLP_DATA` and `HOME` under
+  `/app/cache`.
+- Image checks (Docker, Postgres 16, Redis 7): on a volume holding a root-owned mode-600 file from the old image,
+  the API ran as uid/gid 10001, the file became 10001-owned and stayed readable, migration reached
+  `0004_hosted_studio`, `/readyz` answered ok; the worker started as 10001 after the schema check and answered
+  `celery inspect ping`. The first run failed because `pythainlp` writes to `$HOME` (`/root`), fixed by `HOME` /
+  `PYTHAINLP_DATA`. Desktop bundle lists `uv.lock`, `docker-entrypoint.sh` and migration 0004; desktop 109 tests,
+  compose tests pass.

@@ -52,7 +52,8 @@ services:
       MAX_STAGE_ATTEMPTS: ${MAX_STAGE_ATTEMPTS:-3}
     volumes:
       - video_storage:/app/storage
-      - whisper_cache:/root/.cache/huggingface
+      # Model and NLP data cache (HF_HOME, PYTHAINLP_DATA); the image runs as uid 10001 (SPEC-001 R-NONROOT).
+      - whisper_cache:/app/cache
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -60,9 +61,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: >-
-      sh -c "alembic -c /app/video-postproduction-api/alembic.ini upgrade head
-      && uvicorn video_postproduction.main:app --host 0.0.0.0 --port 8000"
+    # Image CMD: python -m video_postproduction.migrate (tolerates a newer schema), then uvicorn.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 10s
@@ -86,11 +85,15 @@ services:
       MAX_STAGE_ATTEMPTS: ${MAX_STAGE_ATTEMPTS:-3}
     volumes:
       - video_storage:/app/storage
-      - whisper_cache:/root/.cache/huggingface
+      # Model and NLP data cache (HF_HOME, PYTHAINLP_DATA); the image runs as uid 10001 (SPEC-001 R-NONROOT).
+      - whisper_cache:/app/cache
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      # SPEC-001 R-SCHEMA-WAIT: the API is healthy only after it migrated; the worker also checks itself.
+      api:
         condition: service_healthy
     command: ["celery", "-A", "video_postproduction.jobs.tasks.celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
     healthcheck:

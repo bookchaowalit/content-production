@@ -21,6 +21,8 @@ dependencies = [
   "redis>=5.2,<9",
   "sqlalchemy>=2.0,<3",
   "uvicorn[standard]>=0.32,<1",
+  # Job history/trace package from this repository (not on PyPI); path source below (SPEC-001 R-CI-2).
+  "solo-empire-production-trace",
 ]
 
 [project.optional-dependencies]
@@ -58,3 +60,6 @@ target-version = "py311"
 python_version = "3.11"
 strict = true
 warn_unused_ignores = true
+
+[tool.uv.sources]
+solo-empire-production-trace = { path = "../../packages/production-trace" }
