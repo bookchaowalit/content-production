@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import re
+import shutil
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.responses import FileResponse
 from production_trace import read_history
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from ..config import Settings
 from ..edl import EDLDocument, validate_edl
@@ -49,6 +51,7 @@ from ..schemas import (
 )
 from ..silence import SilenceCutError, silence_cut
 from ..storage.base import StorageProvider
+from ..storage.local import LocalFilesystemStorage
 from ..transcription.models import NormalizedTranscript
 from .dependencies import (
     get_job_queue,
@@ -62,13 +65,22 @@ from .dependencies import (
     require_write_access,
 )
 from .errors import APIError
+from .limits import transcription_budget, upload_disk
 from .services import (
     create_project,
     enqueue_accurate_retranscription,
     get_asset_or_error,
     get_job_or_error,
     get_project_or_error,
-    upload_asset,
+    ingest_received,
+)
+from .upload_stream import (
+    BodyTooLarge,
+    FileTooLarge,
+    MissingFilePart,
+    ReceivedFile,
+    UploadStreamError,
+    receive_file,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -218,32 +230,80 @@ def retranscribe_accurately_route(
     return _job_response(session, job)
 
 
+# Room for multipart framing around the file part (boundaries, part headers, small form fields).
+MULTIPART_OVERHEAD_BYTES = 1024 * 1024
+
+
+def _disk_usage(path) -> tuple[int, int]:
+    usage = shutil.disk_usage(path)
+    return usage.total, usage.free
+
+
 @router.post(
     "/projects/{project_id}/assets",
     response_model=AssetUploadResponse,
     status_code=202,
-    dependencies=[Depends(require_write_access), Depends(require_transcription_budget)],
+    dependencies=[Depends(require_write_access)],
 )
-def upload_asset_route(
+async def upload_asset_route(
     project_id: UUID,
-    file: UploadFile = File(...),
+    request: Request,
     session: Session = Depends(get_session),
-    storage: StorageProvider = Depends(get_storage),
+    storage: LocalFilesystemStorage = Depends(get_storage),
     probe_reader: FFprobeMetadataReader = Depends(get_probe_reader),
     queue: JobQueue = Depends(get_job_queue),
     settings: Settings = Depends(get_settings),
 ) -> AssetUploadResponse:
-    asset, job = upload_asset(
-        session,
-        storage,
-        probe_reader,
-        queue,
-        settings,
-        project_id,
-        file.filename,
-        file.content_type,
-        file.file,
-    )
+    """Stream the body to ``STORAGE_ROOT/tmp`` after the cheap checks (SPEC-001 R-INGEST)."""
+
+    await run_in_threadpool(get_project_or_error, session, project_id)
+    raw_length = request.headers.get("content-length")
+    if raw_length is None or not raw_length.isdigit():
+        raise APIError("length_required", "The upload needs a Content-Length header.", 411)
+    length = int(raw_length)
+    max_body = settings.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
+    if length > max_body:
+        raise APIError("asset_too_large", "The uploaded file exceeds the maximum size.", 413)
+    total, free = _disk_usage(storage.root)
+    disk = upload_disk.reserve(length, free_bytes=free, total_bytes=total)
+    if disk is None:
+        raise APIError("insufficient_storage", "There is not enough free space for this upload.", 507)
+    try:
+        budget = transcription_budget.reserve(limit=settings.daily_transcription_jobs)
+        if budget is None:
+            raise APIError(
+                "transcription_budget_exhausted", "The daily transcription budget is used up. Try again tomorrow.", 429
+            )
+        received: ReceivedFile | None = None
+        try:
+            try:
+                received = await receive_file(
+                    request.stream(),
+                    request.headers.get("content-type"),
+                    storage.temp_dir(),
+                    max_file_bytes=settings.max_upload_bytes,
+                    max_body_bytes=min(length, max_body),
+                )
+            except (FileTooLarge, BodyTooLarge) as exc:
+                raise APIError("asset_too_large", "The uploaded file exceeds the maximum size.", 413) from exc
+            except MissingFilePart as exc:
+                raise APIError("asset_file_required", "The upload needs a file field named 'file'.", 400) from exc
+            except UploadStreamError as exc:
+                raise APIError("invalid_upload", "The upload body could not be read.", 400) from exc
+            if not received.filename:
+                raise APIError("asset_filename_required", "A filename is required.", 400)
+            asset, job = await run_in_threadpool(
+                ingest_received, session, storage, probe_reader, queue, settings, project_id, received
+            )
+        except BaseException:
+            budget.release()
+            raise
+        finally:
+            if received is not None:
+                received.path.unlink(missing_ok=True)
+        budget.confirm()
+    finally:
+        disk.release()
     return AssetUploadResponse(
         asset_id=asset.id,
         job_id=job.id,

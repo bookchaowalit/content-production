@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
+import logging
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -15,10 +14,14 @@ from sqlalchemy.orm import Session
 from ..config import Settings
 from ..jobs.queue import JobQueue
 from ..media.ffprobe import FFprobeMetadataReader, MediaProbeError
-from ..media.validation import UploadValidationError, stream_upload, validate_media_type
+from ..media.validation import UploadValidationError, validate_media_type
 from ..models import MediaAsset, ProcessingJob, ProcessingStage, Project, Transcript
-from ..storage.base import StoragePathError, StorageProvider
+from ..storage.base import StoragePathError
+from ..storage.local import LocalFilesystemStorage
 from .errors import APIError
+from .upload_stream import ReceivedFile
+
+logger = logging.getLogger(__name__)
 
 
 def create_project(
@@ -120,53 +123,46 @@ def get_job_or_error(session: Session, job_id: UUID) -> ProcessingJob:
     return job
 
 
-def upload_asset(
+def ingest_received(
     session: Session,
-    storage: StorageProvider,
+    storage: LocalFilesystemStorage,
     probe_reader: FFprobeMetadataReader,
     queue: JobQueue,
     settings: Settings,
     project_id: UUID,
-    filename: str | None,
-    content_type: str | None,
-    source: BinaryIO,
+    received: ReceivedFile,
 ) -> tuple[MediaAsset, ProcessingJob]:
+    """Turn a streamed upload into an asset and an ingest job (SPEC-001 R-INGEST, R-QUEUE).
+
+    The temp file is renamed into place (one copy), probed, and only then are rows written, in one transaction:
+    asset, job, ``probe`` queued and ``transcribe`` blocked. A failed enqueue leaves ``probe`` queued with no
+    ``enqueued_at`` for recovery; the upload still succeeds.
+    """
+
     get_project_or_error(session, project_id)
-    if filename is None:
-        raise APIError("asset_filename_required", "A filename is required.", 400)
     try:
-        normalized_type = validate_media_type(content_type, filename, settings.allowed_mime_types)
+        normalized_type = validate_media_type(received.content_type, received.filename, settings.allowed_mime_types)
     except UploadValidationError as exc:
         raise APIError("asset_type_not_supported", "The uploaded file type is not supported.", 415) from exc
 
-    suffix = Path(filename).suffix.lower()
     asset_id = uuid4()
-    storage_key = f"projects/{project_id}/original/{asset_id}{suffix}"
-    temporary_path: Path | None = None
-    stored = None
+    storage_key = f"projects/{project_id}/original/{asset_id}{Path(received.filename).suffix.lower()}"
     try:
-        with tempfile.NamedTemporaryFile(mode="w+b", prefix="video-upload-", suffix=suffix, delete=False) as temporary:
-            temporary_path = Path(temporary.name)
-            try:
-                stream_upload(source, temporary, settings.max_upload_bytes)
-            except UploadValidationError as exc:
-                raise APIError("asset_too_large", "The uploaded file exceeds the maximum size.", 413) from exc
-            temporary.flush()
-            os.fsync(temporary.fileno())
-
-        with temporary_path.open("rb") as temporary_source:
-            stored = storage.put_atomic(storage_key, temporary_source, normalized_type)
+        stored = storage.adopt(
+            received.path, storage_key, normalized_type, size_bytes=received.size_bytes, sha256=received.sha256
+        )
+    except (OSError, StoragePathError) as exc:
+        raise APIError("asset_storage_error", "The uploaded file could not be stored.", 500) from exc
+    try:
         try:
             metadata = probe_reader.read(storage.local_path(storage_key))
         except MediaProbeError as exc:
-            storage.delete(storage_key)
             raise APIError("asset_not_readable", "The uploaded file is not a readable video.", 422) from exc
-
         asset = MediaAsset(
             id=asset_id,
             project_id=project_id,
             storage_key=stored.storage_key,
-            original_filename=filename,
+            original_filename=received.filename,
             media_type=normalized_type,
             size_bytes=stored.size_bytes,
             sha256=stored.sha256,
@@ -183,24 +179,21 @@ def upload_asset(
         session.add(asset)
         session.add(job)
         session.flush()
-        session.add(ProcessingStage(job_id=job.id, name="probe", status="queued"))
-        session.add(ProcessingStage(job_id=job.id, name="transcribe", status="queued"))
+        probe = ProcessingStage(job_id=job.id, name="probe", status="queued")
+        session.add(probe)
+        session.add(ProcessingStage(job_id=job.id, name="transcribe", status="blocked"))
         session.commit()
-        try:
-            queue.enqueue(job.id, "probe")
-        except Exception as exc:
-            job.status = "failed"
-            job.error_code = "queue_error"
-            job.error_message = "The processing job could not be queued."
-            session.commit()
-            raise APIError("job_queue_unavailable", "The processing job could not be queued.", 503) from exc
-        return asset, job
-    except APIError:
+    except BaseException:
+        session.rollback()
+        storage.delete(storage_key)
         raise
-    except (OSError, StoragePathError) as exc:
-        if stored is not None:
-            storage.delete(storage_key)
-        raise APIError("asset_storage_error", "The uploaded file could not be stored.", 500) from exc
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+    try:
+        queue.enqueue(job.id, "probe")
+    except Exception:  # noqa: BLE001 - recover_jobs re-sends a queued stage without enqueued_at
+        logger.warning("enqueue of probe for job %s failed; recovery will resend it", job.id)
+    else:
+        probe.enqueued_at = datetime.now(UTC)
+        session.commit()
+    return asset, job
+
+

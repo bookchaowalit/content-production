@@ -85,3 +85,16 @@ Findings that change the implementation (spec text already allows them):
   `test_sqlite_in_a_missing_directory_is_created` — all failed.
 - **Green**: fixes listed in `review-R7.md` #1–#11. Full API suite 194 passed, 4 skipped; migration tests pass on
   Postgres 16 again.
+
+## Streaming upload route (R-INGEST, part 2) — 2026-11-19
+
+- Test: `tests/test_api_upload_stream.py` (8 cases).
+- **Red**: 7 of 8 failed against the old `UploadFile` route — transcribe was created `queued`, no 411, no 507,
+  unreadable video still spent budget, failed enqueue answered 503 and marked the job failed, the body was
+  spooled through `tempfile.SpooledTemporaryFile` / `NamedTemporaryFile` without a directory (container `/tmp`).
+- **Green**: the route is async and reads `request.stream()` through `receive_file` into `STORAGE_ROOT/tmp`; checks
+  before reading: project exists, `Content-Length` (411 / 413), disk reservation (507), budget reservation (429);
+  `ingest_received` renames the temp file into place (`LocalFilesystemStorage.adopt`, one copy), probes, then writes
+  asset + job + `probe` queued + `transcribe` blocked in one commit; a failed enqueue leaves `probe` queued without
+  `enqueued_at` (202). Budget is confirmed only after the commit. The old `upload_asset` is removed. Full API
+  suite: 202 passed, 4 skipped.
