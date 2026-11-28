@@ -31,7 +31,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-
 GATEWAY = os.environ.get("ART_GATEWAY_URL", "https://api.bookchaowalit.com")
 MODELS = {"sd-turbo": "stabilityai/sd-turbo", "sdxl-turbo": "stabilityai/sdxl-turbo"}
 
@@ -69,7 +68,7 @@ def cmd_draft(a: argparse.Namespace) -> None:
     import torch
     from diffusers import AutoPipelineForText2Image
 
-    size = a.size or (512 if a.model == "sd-turbo" else 512)
+    size = a.size or 512
     pipe = AutoPipelineForText2Image.from_pretrained(
         MODELS[a.model], torch_dtype=torch.float16, variant="fp16"
     ).to("cuda")
@@ -99,9 +98,9 @@ def gateway_token() -> str:
         return tok
     pid = subprocess.run(
         ["bash", "-c", "source ~/.config/solo-empire/environment.sh >/dev/null 2>&1; printf %s \"$INFISICAL_PROJECT_ID\""],
-        capture_output=True, text=True).stdout.strip()
+        capture_output=True, text=True, check=False).stdout.strip()
     r = subprocess.run(["infisical", "secrets", "get", "CLAUDE_ART_TOKEN", "--projectId", pid, "--env", "dev",
-                        "--path", "/ai-media", "--plain", "--silent"], capture_output=True, text=True)
+                        "--path", "/ai-media", "--plain", "--silent"], capture_output=True, text=True, check=False)
     tok = r.stdout.strip()
     if r.returncode or not tok:
         sys.exit("could not read CLAUDE_ART_TOKEN from Infisical /ai-media")
@@ -120,7 +119,7 @@ def call(method: str, path: str, tok: str, body: dict | None = None) -> tuple[in
     except urllib.error.HTTPError as e:
         try:
             return e.code, json.load(e)
-        except Exception:
+        except ValueError:
             return e.code, {"error": e.reason}
 
 
@@ -151,9 +150,8 @@ def cmd_final(a: argparse.Namespace) -> None:
     print(f"price: {cost} USD for {a.n} image(s) via {dry['routing']['selected']}")
     if cost > a.max_usd:
         sys.exit(f"over --max-usd {a.max_usd}; not created")
-    if not a.yes and sys.stdin.isatty():
-        if input("create? [y/N] ").strip().lower() != "y":
-            sys.exit("cancelled")
+    if not a.yes and sys.stdin.isatty() and input("create? [y/N] ").strip().lower() != "y":
+        sys.exit("cancelled")
     st, job = call("POST", "/api/ai/media/requests", tok, {**body, "expected_reserved_usd": cost})
     if st != 202:
         sys.exit(f"create refused ({st}): {json.dumps(job, ensure_ascii=False)}")
@@ -224,7 +222,7 @@ def cmd_text(a: argparse.Namespace) -> None:
     svg.write_text("".join(parts), encoding="utf-8")
     fonts = str(Path.home() / ".local/share/fonts")
     r = subprocess.run(["resvg", "--use-fonts-dir", fonts, "--resources-dir", str(src.parent.resolve()), str(svg), str(out)],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, check=False)
     if r.returncode:
         sys.exit(r.stderr.strip())
     if not a.keep_svg:
@@ -253,14 +251,15 @@ def _hex(c: str):
 
 def _resvg(svg: Path, png: Path) -> None:
     r = subprocess.run(["resvg", "--use-fonts-dir", str(Path.home() / ".local/share/fonts"), str(svg), str(png)],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, check=False)
     if r.returncode:
         sys.exit(f"resvg failed for {svg}: {r.stderr.strip()}")
 
 
 def render_job(job: dict, brand_name: str | None, out: Path, base: Path) -> list[dict]:
-    from . import templates as T
     from PIL import Image
+
+    from . import templates as T
 
     brand = T.load_brand(job.get("brand", brand_name))
     data = dict(job.get("data", {}))
@@ -420,7 +419,7 @@ def _text_svg(text: str, font: str, path: Path) -> None:
         f'font-family="{html.escape(font)}" font-weight="700" font-size="240">{html.escape(text)}</text></svg>',
         encoding="utf-8")
     r = subprocess.run(["inkscape", str(raw), "--export-text-to-path", "--export-plain-svg",
-                        "--export-area-drawing", "-o", str(path)], capture_output=True, text=True)
+                        "--export-area-drawing", "-o", str(path)], capture_output=True, text=True, check=False)
     raw.unlink()
     if r.returncode or not path.exists():
         sys.exit(f"inkscape failed: {r.stderr.strip()[:300]}")
@@ -428,9 +427,10 @@ def _text_svg(text: str, font: str, path: Path) -> None:
 
 def cmd_3d(a: argparse.Namespace) -> None:
     import shutil
+
     from . import templates as T
 
-    label, W, H = T.parse_size(a.size)
+    _label, W, H = T.parse_size(a.size)
     src = a.input or a.text or "logo"
     d = out_dir(a.out, Path(src).stem if a.input else src)
     raw = d / "raw"
@@ -466,7 +466,7 @@ def cmd_3d(a: argparse.Namespace) -> None:
     script = Path(__file__).resolve().with_name("blender_scene.py")
     t = time.time()
     proc = subprocess.run(["blender", "-b", "--factory-startup", "--python-exit-code", "1", "--python", str(script),
-                           "--", json.dumps(job)], capture_output=True, text=True)
+                           "--", json.dumps(job)], capture_output=True, text=True, check=False)
     info = [l[6:] for l in proc.stdout.splitlines() if l.startswith("ART3D ")]
     if proc.returncode:
         tail = [l for l in (proc.stdout + proc.stderr).splitlines() if l.strip()][-15:]
@@ -500,10 +500,10 @@ def cmd_3d(a: argparse.Namespace) -> None:
             enc = ["-c:v", "h264_nvenc", "-cq", "19", "-preset", "p6"]
             cmd = ["ffmpeg", "-v", "error", "-y", "-framerate", str(a.fps), "-i", pattern, *enc,
                    "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(video)]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if r.returncode and "nvenc" in " ".join(cmd):
             cmd[cmd.index("h264_nvenc"):cmd.index("h264_nvenc") + 5] = ["libx264", "-crf", "18", "-preset", "slow"]
-            r = subprocess.run(cmd, capture_output=True, text=True)
+            r = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if r.returncode:
             sys.exit(f"ffmpeg failed: {r.stderr.strip()[:300]}")
         outs += [video, d / "poster.png"]

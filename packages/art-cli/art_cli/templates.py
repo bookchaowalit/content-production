@@ -8,13 +8,14 @@ on Thai word boundaries (pythainlp newmm).
 from __future__ import annotations
 
 import base64
+import contextlib
 import html
 import json
 import mimetypes
 import re
 import subprocess
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 SIZES = {
@@ -51,16 +52,16 @@ def load_brand(name_or_path: str | None) -> dict:
 
 
 # ------------------------------------------------------------------ text measuring
-@lru_cache(maxsize=None)
+@cache
 def font_file(family: str, bold: bool) -> str:
     q = f"{family}:bold" if bold else family
     try:
-        return subprocess.run(["fc-match", "-f", "%{file}", q], capture_output=True, text=True).stdout.strip()
+        return subprocess.run(["fc-match", "-f", "%{file}", q], capture_output=True, text=True, check=False).stdout.strip()
     except FileNotFoundError:  # no fontconfig: measure with Pillow's built-in font
         return ""
 
 
-@lru_cache(maxsize=None)
+@cache
 def _font(family: str, bold: bool, size: int):
     from PIL import ImageFont
 
@@ -69,10 +70,8 @@ def _font(family: str, bold: bool, size: int):
         return ImageFont.load_default(size)
     f = ImageFont.truetype(path, size)
     if "[" in path:  # variable font: pick the weight axis
-        try:
+        with contextlib.suppress(OSError, ValueError):  # a font without a weight axis keeps its default
             f.set_variation_by_axes([700 if bold else 400] + [100] * (len(f.get_variation_axes()) - 1))
-        except Exception:
-            pass
     return f
 
 
@@ -316,4 +315,4 @@ TEMPLATES = {"poster": poster, "split": split, "card": card}
 
 def strip_text(svg: str) -> str:
     """The same picture without the text group, for contrast sampling."""
-    return re.sub(r'<g id="txt".*?</g>', "", svg, flags=re.S)
+    return re.sub(r'<g id="txt".*?</g>', "", svg, flags=re.DOTALL)

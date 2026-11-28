@@ -2,10 +2,9 @@ import json
 import shutil
 
 import pytest
-from PIL import Image
-
 from art_cli import cli
 from art_cli import templates as T
+from PIL import Image
 
 FONT = "IBM Plex Sans Thai"
 
