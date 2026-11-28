@@ -1,0 +1,11 @@
+{
+  "name": "agency",
+  "source": "bookchaowalit-agency/agency-main-web --accent #0066cc",
+  "fonts": { "heading": "IBM Plex Sans Thai", "body": "IBM Plex Sans Thai" },
+  "colors": {
+    "bg": "#0b2545", "bg2": "#0d3b78", "fg": "#ffffff", "muted": "#cfdcf0",
+    "accent": "#0066cc", "on_accent": "#ffffff",
+    "panel": "#f5f8fc", "ink": "#0b2545", "ink_muted": "#45566e"
+  },
+  "footer": "agency.bookchaowalit.com"
+}
