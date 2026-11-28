@@ -51,3 +51,7 @@ uv pip install -e ".[dev]" && python -m pytest
 - `split` ignores `logo` (poster and card place it); add a panel slot when a client needs it.
 - `art check DIR` re-reads the absolute paths stored in `report.json`, so a moved output folder
   reports files as missing; re-run `art batch` there instead.
+- `art 3d` frames the camera from the swept circle (2 × radius) and the height seen at the shot's
+  elevation, plus a margin, not from a full perspective projection of every vertex. Very deep or
+  very tall models at steep angles can come out a little loose or tight; pass `--lens` or use
+  `--frames 2` to preview first.

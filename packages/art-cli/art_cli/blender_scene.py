@@ -50,7 +50,9 @@ def import_model(path: str) -> list:
         with bpy.data.libraries.load(path) as (src, dst):
             dst.objects = list(src.objects)
         for o in dst.objects:
-            if o is not None and o.type not in ("CAMERA", "LIGHT"):
+            # keep the file's own render visibility: hidden helpers, rigs and collections stay out
+            if o is not None and o.type not in ("CAMERA", "LIGHT") and not o.hide_render \
+                    and not any(c.hide_render for c in o.users_collection):
                 scene.collection.objects.link(o)
     else:
         raise SystemExit(f"unsupported model type {ext}")

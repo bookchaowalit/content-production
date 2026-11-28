@@ -23,7 +23,9 @@ uv pip install -q -e "$here[dev,extras]"
 if [ "$gpu" = 1 ]; then
   uv pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cu128 \
     --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match
-  uv pip install -q -e "$here[gpu]"
+  # same CUDA index again, so resolving the gpu extra never swaps torch for the CPU wheel from PyPI
+  uv pip install -q -e "$here[gpu]" --index-url https://download.pytorch.org/whl/cu128 \
+    --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match
 fi
 
 # `art` wrapper: WSL keeps libcuda/nvidia-smi in /usr/lib/wsl/lib

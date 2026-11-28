@@ -141,3 +141,29 @@ def test_batch_names_do_not_collide_or_escape(tmp_path):
     assert len(set(files)) == 3
     assert all(str(tmp_path) in f for f in files)
     assert not list(tmp_path.glob(".art-*"))  # temp svgs/pngs cleaned up
+
+
+def test_brand_rejects_values_that_would_break_out_of_svg(tmp_path):
+    p = tmp_path / "bad.json"
+    p.write_text(json.dumps({"colors": {"accent": '#fff" onload="x'}}))
+    with pytest.raises(SystemExit, match="#rrggbb"):
+        T.load_brand(str(p))
+
+
+def test_long_eyebrow_and_cta_stay_inside_the_column():
+    lay = T.split({"eyebrow": "EYEBROW " * 40, "title": "หัวข้อ", "cta": "กดตรงนี้ " * 40}, T.load_brand(None), 1200, 630)
+    panel_right = 1200 * 0.52  # landscape split: the photo starts at 52 % of the width
+    for b in lay.boxes:
+        if b.role in ("eyebrow", "cta"):
+            assert b.x + b.w <= panel_right, b.role
+
+
+def test_footer_is_measured_and_stripped_for_contrast():
+    lay = T.card({"title": "t", "footer": "example.com"}, T.load_brand(None), 1200, 630)
+    assert any(b.role == "footer" for b in lay.boxes)
+    assert "example.com" not in T.strip_text(lay.svg)
+
+
+def test_gateway_calls_do_not_follow_redirects():
+    handler = cli._NoRedirect()
+    assert handler.redirect_request(None, None, 302, "Found", {}, "https://elsewhere.example/") is None

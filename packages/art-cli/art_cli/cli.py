@@ -118,6 +118,16 @@ def _gateway_base() -> str:
     return f"https://{u.netloc}{u.path.rstrip('/')}"
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Requests that carry the gateway token never follow a redirect (urllib would forward Authorization)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002
+        return None
+
+
+_gateway_opener = urllib.request.build_opener(_NoRedirect)
+
+
 def call(method: str, path: str, tok: str, body: dict | None = None) -> tuple[int, dict]:
     req = urllib.request.Request(
         _gateway_base() + path, method=method,
@@ -125,7 +135,7 @@ def call(method: str, path: str, tok: str, body: dict | None = None) -> tuple[in
         headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json",
                  "User-Agent": "art-cli/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with _gateway_opener.open(req, timeout=60) as r:
             return r.status, json.load(r)
     except urllib.error.HTTPError as e:
         try:
@@ -205,16 +215,24 @@ def cmd_text(a: argparse.Namespace) -> None:
     W, H = im.size
     mime = mimetypes.guess_type(src.name)[0] or "image/png"
     b64 = base64.b64encode(src.read_bytes()).decode()
-    ts = a.title_size or round(W * 0.075)
-    ss = a.sub_size or round(ts * 0.5)
+    from . import templates as T
+
     pad = round(W * 0.06)
-    block = ts + (ss * 1.5 if a.subtitle else 0)
+    max_w = W - pad * 2
+    tf = T.fit(a.title, a.font, True, max_w, 2, a.title_size or round(W * 0.075), round(W * 0.035))
+    ts = tf.size
+    sf = T.fit(a.subtitle, a.font, False, max_w, 2, a.sub_size or round(ts * 0.5), round(W * 0.022)) if a.subtitle else None
+    ss = sf.size if sf else 0
+    block = ts * 1.2 * len(tf.lines) + (ss * 1.4 * len(sf.lines) + ss * 0.4 if sf else 0)
     if a.pos == "top":
         y0 = pad + ts
     elif a.pos == "center":
         y0 = (H - block) / 2 + ts
     else:
         y0 = H - pad - block + ts
+    for f, role in ((tf, "title"), (sf, "subtitle")):
+        if f and f.truncated:
+            print(f"WARN {role}: text cut to {len(f.lines)} lines (shorten it)")
     anchor, x = {"left": ("start", pad), "center": ("middle", W / 2), "right": ("end", W - pad)}[a.align]
     shade = ""
     if a.scrim:
@@ -229,8 +247,10 @@ def cmd_text(a: argparse.Namespace) -> None:
         f'<image width="{W}" height="{H}" xlink:href="data:{mime};base64,{b64}"/>',
         f'<rect width="{W}" height="{H}" fill="url(#g)"/>' if a.scrim and a.pos != "center" else "",
         f'<g font-family="{esc(a.font)}" fill="{esc(a.color)}" text-anchor="{anchor}" filter="url(#s)">',
-        f'<text x="{x}" y="{y0}" font-size="{ts}" font-weight="700">{esc(a.title)}</text>',
-        f'<text x="{x}" y="{y0 + ss * 1.5}" font-size="{ss}" font-weight="400">{esc(a.subtitle)}</text>' if a.subtitle else "",
+        *(f'<text x="{x}" y="{y0 + i * ts * 1.2:.1f}" font-size="{ts}" font-weight="700">{esc(line)}</text>'
+          for i, line in enumerate(tf.lines)),
+        *(f'<text x="{x}" y="{y0 + ts * 1.2 * (len(tf.lines) - 1) + ss * 1.8 + i * ss * 1.4:.1f}" font-size="{ss}" '
+          f'font-weight="400">{esc(line)}</text>' for i, line in enumerate(sf.lines if sf else [])),
         "</g></svg>",
     ]
     out = Path(a.out) if a.out else src.with_name(src.stem + "-text.png")

@@ -48,6 +48,12 @@ def load_brand(name_or_path: str | None) -> dict:
     base["fonts"].update(b.get("fonts", {}))
     base["colors"].update(b.get("colors", {}))
     base.update({k: v for k, v in b.items() if k not in ("fonts", "colors")})
+    for k, v in base["colors"].items():  # colours go straight into SVG attributes
+        if not (isinstance(v, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", v)):
+            raise SystemExit(f"brand {p.name}: colour {k}={v!r} must be #rrggbb")
+    for k, v in base["fonts"].items():
+        if not (isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9 _-]{1,64}", v)):
+            raise SystemExit(f"brand {p.name}: font {k}={v!r} must be a plain family name")
     return base
 
 
@@ -173,8 +179,10 @@ def text_lines(f: Fit, x: float, y_top: float, family: str, bold: bool, color: s
     return "".join(out), f.size * lh * len(f.lines)
 
 
-def pill(label: str, x: float, y: float, size: int, family: str, bg: str, fg: str) -> tuple[str, float, float]:
+def pill(label: str, x: float, y: float, size: int, family: str, bg: str, fg: str,
+         max_w: float = 1e9) -> tuple[str, float, float]:
     pad_x, h = size * 1.1, size * 2.3
+    label = clip(label, family, size, max_w - pad_x * 2)
     w = text_width(label, family, True, size) + pad_x * 2
     svg = (f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="{h / 2:.1f}" fill="{bg}"/>'
            f'<text x="{x + w / 2:.1f}" y="{y + h / 2 + size * 0.36:.1f}" font-family="{esc(family)}" font-size="{size}" '
@@ -182,8 +190,19 @@ def pill(label: str, x: float, y: float, size: int, family: str, bg: str, fg: st
     return svg, w, h
 
 
-def tag(label: str, x: float, y: float, size: int, family: str, bg: str, fg: str) -> tuple[str, float, float]:
+def clip(label: str, family: str, size: int, max_w: float) -> str:
+    """Shorten a one-line bold label with an ellipsis until it fits max_w."""
+    if text_width(label, family, True, size) <= max_w:
+        return label
+    while label and text_width(label.rstrip() + "…", family, True, size) > max_w:
+        label = label[:-1]
+    return label.rstrip() + "…"
+
+
+def tag(label: str, x: float, y: float, size: int, family: str, bg: str, fg: str,
+        max_w: float = 1e9) -> tuple[str, float, float]:
     pad_x, h = size * 0.7, size * 1.9
+    label = clip(label, family, size, max_w - pad_x * 2)
     w = text_width(label, family, True, size) + pad_x * 2
     svg = (f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="{size * 0.3:.1f}" fill="{bg}"/>'
            f'<text x="{x + pad_x:.1f}" y="{y + h / 2 + size * 0.36:.1f}" font-family="{esc(family)}" font-size="{size}" '
@@ -208,7 +227,7 @@ def text_block(d: dict, b: dict, x: float, y: float, max_w: float, max_h: float,
     if d.get("eyebrow"):
         label = d["eyebrow"].upper() if d["eyebrow"].isascii() else d["eyebrow"]
         size = round(u * 0.024)
-        s, w, hh = tag(label, x, cy, size, fb, accent, b["colors"]["on_accent"])
+        s, w, hh = tag(label, x, cy, size, fb, accent, b["colors"]["on_accent"], max_w)
         parts.append(s); boxes.append(Box("eyebrow", x, cy, w, hh, b["colors"]["on_accent"], size)); cy += hh + u * 0.022
     title_lines = 3 if max_w / u > 0.6 else 4
     f = fit(d.get("title", ""), fh, True, max_w, title_lines, round(u * title_max), round(u * 0.045))
@@ -221,17 +240,26 @@ def text_block(d: dict, b: dict, x: float, y: float, max_w: float, max_h: float,
         parts.append(s); boxes.append(Box("subtitle", x, cy, max_w, hh, muted, f.size, f)); cy += hh
     if d.get("cta"):
         cy += u * 0.035
-        s, w, hh = pill(d["cta"], x, cy, round(u * 0.03), fb, accent, b["colors"]["on_accent"])
+        s, w, hh = pill(d["cta"], x, cy, round(u * 0.03), fb, accent, b["colors"]["on_accent"], max_w)
         parts.append(s); boxes.append(Box("cta", x, cy, w, hh, b["colors"]["on_accent"], round(u * 0.03))); cy += hh
     return "".join(parts), boxes, cy - y
 
 
-def footer(d: dict, b: dict, W: int, H: int, u: float, color: str, pad: float) -> str:
+def footer(d: dict, b: dict, W: int, H: int, u: float, color: str, pad: float,
+           x: float | None = None, max_w: float | None = None) -> tuple[str, Box | None]:
+    """Small line at the bottom: right-aligned at W - pad, or left-aligned from x."""
     label = d.get("footer", b.get("footer", ""))
     if not label:
-        return ""
-    return (f'<text x="{W - pad:.1f}" y="{H - pad * 0.6:.1f}" font-family="{esc(b["fonts"]["body"])}" '
-            f'font-size="{round(u * 0.024)}" fill="{color}" text-anchor="end" opacity="0.85">{esc(label)}</text>')
+        return "", None
+    size, family = round(u * 0.024), b["fonts"]["body"]
+    label = clip(label, family, size, max_w or (W - pad * 2))
+    w = text_width(label, family, False, size)
+    left = x if x is not None else W - pad - w
+    anchor_x, anchor = (x, "start") if x is not None else (W - pad, "end")
+    base = H - pad * 0.6
+    svg = (f'<g id="txt-footer"><text x="{anchor_x:.1f}" y="{base:.1f}" font-family="{esc(family)}" '
+           f'font-size="{size}" fill="{color}" text-anchor="{anchor}">{esc(label)}</text></g>')
+    return svg, Box("footer", left, base - size, w, size * 1.3, color, size)
 
 
 def logo(d: dict, pad: float, u: float) -> str:
@@ -263,7 +291,9 @@ def poster(d: dict, b: dict, W: int, H: int) -> Layout:
         bx.y += y0
     parts.append(logo(d, pad, u))
     parts.append(f'<g id="txt" transform="translate(0 {y0:.1f})">{txt}</g>')
-    parts.append(footer(d, b, W, H, u, c["muted"], pad))
+    fsvg, fbox = footer(d, b, W, H, u, c["muted"], pad)
+    parts.append(fsvg)
+    boxes += [fbox] if fbox else []
     parts.append("</svg>")
     return Layout("".join(parts), boxes)
 
@@ -291,11 +321,10 @@ def split(d: dict, b: dict, W: int, H: int) -> Layout:
     for bx in boxes:
         bx.y += y0
     parts.append(f'<g id="txt" transform="translate(0 {y0:.1f})">{txt}</g>')
-    label = d.get("footer", b.get("footer", ""))
-    if label:  # on the panel, never over the photo
-        fx, anchor = (tx, "start") if landscape else (W - pad, "end")
-        parts.append(f'<text x="{fx:.1f}" y="{H - pad * 0.6:.1f}" font-family="{esc(b["fonts"]["body"])}" '
-                     f'font-size="{round(u * 0.024)}" fill="{c["ink_muted"]}" text-anchor="{anchor}">{esc(label)}</text>')
+    # on the panel, never over the photo
+    fsvg, fbox = footer(d, b, W, H, u, c["ink_muted"], pad, x=tx if landscape else None, max_w=tw)
+    parts.append(fsvg)
+    boxes += [fbox] if fbox else []
     parts.append("</svg>")
     return Layout("".join(parts), boxes, warnings=warns)
 
@@ -317,7 +346,9 @@ def card(d: dict, b: dict, W: int, H: int) -> Layout:
         bx.y += y0
     parts.append(logo(d, W - pad - u * 0.09, u) if d.get("logo") else "")
     parts.append(f'<g id="txt" transform="translate(0 {y0:.1f})">{txt}</g>')
-    parts.append(footer(d, b, W, H, u, c["muted"], pad))
+    fsvg, fbox = footer(d, b, W, H, u, c["muted"], pad)
+    parts.append(fsvg)
+    boxes += [fbox] if fbox else []
     parts.append("</svg>")
     return Layout("".join(parts), boxes, warnings=warns)
 
@@ -327,4 +358,4 @@ TEMPLATES = {"poster": poster, "split": split, "card": card}
 
 def strip_text(svg: str) -> str:
     """The same picture without the text group, for contrast sampling."""
-    return re.sub(r'<g id="txt".*?</g>', "", svg, flags=re.DOTALL)
+    return re.sub(r'<g id="txt[^"]*".*?</g>', "", svg, flags=re.DOTALL)
