@@ -87,3 +87,57 @@ def test_render_job_writes_png_and_report(tmp_path):
 def test_find_urls_walks_nested_attempts():
     body = {"attempts": [{"outputs": [{"url": "https://r2.example/a.png"}, {"url": "http://insecure"}]}]}
     assert cli.find_urls(body) == ["https://r2.example/a.png"]
+
+
+def test_safe_name_never_leaves_the_folder():
+    assert cli._safe_name("../../etc/passwd") == "etc-passwd"
+    assert cli._safe_name("..") == "art"
+    assert "/" not in cli._safe_name("a/b\\c")
+
+
+def test_fit_cuts_a_single_word_wider_than_the_box():
+    f = T.fit("Supercalifragilisticexpialidocious" * 3, FONT, True, 120, 2, 40, 20)
+    assert f.truncated
+    assert all(T.text_width(line, FONT, True, f.size) <= 120 for line in f.lines)
+
+
+def test_check_boxes_flags_horizontal_overflow():
+    bg = Image.new("RGB", (400, 200), (0, 0, 0))
+    warn = cli.check_boxes([T.Box("title", 300, 10, 200, 40, "#ffffff", 40)], bg, T.load_brand(None), 400, 200)
+    assert any("outside the canvas" in w for w in warn)
+
+
+def test_split_warns_when_copy_is_taller_than_its_panel():
+    lay = T.split({"eyebrow": "x", "title": "คำ " * 60, "subtitle": "ยาว " * 80, "cta": "ok"}, T.load_brand(None), 600, 640)
+    assert lay.warnings and "taller than its panel" in lay.warnings[0]
+
+
+def test_final_refuses_paid_work_without_yes_when_not_interactive(monkeypatch):
+    import argparse
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    a = argparse.Namespace(max_usd=0.25, yes=False)
+    with pytest.raises(SystemExit, match="--yes"):
+        cli.cmd_final(a)
+
+
+def test_gateway_must_be_https(monkeypatch):
+    monkeypatch.setattr(cli, "GATEWAY", "http://evil.example")
+    with pytest.raises(SystemExit, match="https"):
+        cli._gateway_base()
+    monkeypatch.setattr(cli, "GATEWAY", "https://api.example/")
+    assert cli._gateway_base() == "https://api.example"
+
+
+@pytest.mark.skipif(not shutil.which("resvg"), reason="resvg not installed")
+def test_batch_names_do_not_collide_or_escape(tmp_path):
+    taken: set[str] = set()
+    a = cli.render_job({"name": "../x", "template": "card", "sizes": ["og", "1200x630"], "data": {"title": "หนึ่ง"}},
+                       None, tmp_path, tmp_path, taken)
+    b = cli.render_job({"name": "../x", "template": "card", "sizes": ["og"], "data": {"title": "สอง"}},
+                       None, tmp_path, tmp_path, taken)
+    files = [r["file"] for r in a + b]
+    assert len(set(files)) == 3
+    assert all(str(tmp_path) in f for f in files)
+    assert not list(tmp_path.glob(".art-*"))  # temp svgs/pngs cleaned up

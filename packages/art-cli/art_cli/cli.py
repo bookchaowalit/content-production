@@ -22,12 +22,16 @@ import base64
 import datetime as dt
 import html
 import json
+import math
+import mimetypes
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -55,7 +59,7 @@ def contact_sheet(paths: list[Path], dest: Path) -> None:
     sheet = Image.new("RGB", (cols * w, rows * w), "white")
     d = ImageDraw.Draw(sheet)
     for i, im in enumerate(ims):
-        im = im.resize((w, w * im.height // im.width))
+        im.thumbnail((w, w))
         x, y = (i % cols) * w, (i // cols) * w
         sheet.paste(im, (x, y))
         d.rectangle([x, y, x + 28, y + 22], fill="black")
@@ -107,9 +111,16 @@ def gateway_token() -> str:
     return tok
 
 
+def _gateway_base() -> str:
+    u = urllib.parse.urlsplit(GATEWAY)
+    if u.scheme != "https" or not u.netloc or u.username or u.password or u.query or u.fragment:
+        sys.exit("ART_GATEWAY_URL must be a plain https:// origin; the gateway token is never sent elsewhere")
+    return f"https://{u.netloc}{u.path.rstrip('/')}"
+
+
 def call(method: str, path: str, tok: str, body: dict | None = None) -> tuple[int, dict]:
     req = urllib.request.Request(
-        GATEWAY + path, method=method,
+        _gateway_base() + path, method=method,
         data=json.dumps(body).encode() if body is not None else None,
         headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json",
                  "User-Agent": "art-cli/1.0"})
@@ -138,6 +149,11 @@ def find_urls(obj, found=None) -> list[str]:
 
 
 def cmd_final(a: argparse.Namespace) -> None:
+    if not math.isfinite(a.max_usd) or a.max_usd < 0:
+        sys.exit("--max-usd must be a finite number >= 0")
+    _gateway_base()
+    if not a.yes and not sys.stdin.isatty():
+        sys.exit("paid request: pass --yes when running without a terminal")
     tok = gateway_token()
     body = {"kind": "image", "models": ["openai-image"], "prompt": a.prompt, "aspect": a.aspect, "resolution": a.res, "n": a.n,
             "route": "claude-art", "privacy_class": "internal", "purpose": "claude-art final"}
@@ -150,7 +166,7 @@ def cmd_final(a: argparse.Namespace) -> None:
     print(f"price: {cost} USD for {a.n} image(s) via {dry['routing']['selected']}")
     if cost > a.max_usd:
         sys.exit(f"over --max-usd {a.max_usd}; not created")
-    if not a.yes and sys.stdin.isatty() and input("create? [y/N] ").strip().lower() != "y":
+    if not a.yes and input("create? [y/N] ").strip().lower() != "y":
         sys.exit("cancelled")
     st, job = call("POST", "/api/ai/media/requests", tok, {**body, "expected_reserved_usd": cost})
     if st != 202:
@@ -187,7 +203,7 @@ def cmd_text(a: argparse.Namespace) -> None:
     src = Path(a.image)
     im = Image.open(src)
     W, H = im.size
-    mime = "image/png" if src.suffix.lower() == ".png" else "image/jpeg"
+    mime = mimetypes.guess_type(src.name)[0] or "image/png"
     b64 = base64.b64encode(src.read_bytes()).decode()
     ts = a.title_size or round(W * 0.075)
     ss = a.sub_size or round(ts * 0.5)
@@ -218,15 +234,15 @@ def cmd_text(a: argparse.Namespace) -> None:
         "</g></svg>",
     ]
     out = Path(a.out) if a.out else src.with_name(src.stem + "-text.png")
-    svg = out.with_suffix(".svg")
+    svg = out.with_suffix(".svg") if a.keep_svg else _temp_path(out.parent, ".svg")
     svg.write_text("".join(parts), encoding="utf-8")
     fonts = str(Path.home() / ".local/share/fonts")
     r = subprocess.run(["resvg", "--use-fonts-dir", fonts, "--resources-dir", str(src.parent.resolve()), str(svg), str(out)],
                        capture_output=True, text=True, check=False)
-    if r.returncode:
-        sys.exit(r.stderr.strip())
     if not a.keep_svg:
         svg.unlink()
+    if r.returncode:
+        sys.exit(r.stderr.strip())
     print(f"-> {out}")
 
 
@@ -249,6 +265,17 @@ def _hex(c: str):
     return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
 
 
+def _temp_path(folder: Path, suffix: str) -> Path:
+    fd, name = tempfile.mkstemp(prefix=".art-", suffix=suffix, dir=folder)
+    os.close(fd)
+    return Path(name)
+
+
+def _safe_name(name: str) -> str:
+    """One file-name segment: job names can never climb out of the output folder."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip(".-")[:60] or "art"
+
+
 def _resvg(svg: Path, png: Path) -> None:
     r = subprocess.run(["resvg", "--use-fonts-dir", str(Path.home() / ".local/share/fonts"), str(svg), str(png)],
                        capture_output=True, text=True, check=False)
@@ -256,7 +283,7 @@ def _resvg(svg: Path, png: Path) -> None:
         sys.exit(f"resvg failed for {svg}: {r.stderr.strip()}")
 
 
-def render_job(job: dict, brand_name: str | None, out: Path, base: Path) -> list[dict]:
+def render_job(job: dict, brand_name: str | None, out: Path, base: Path, taken: set[str] | None = None) -> list[dict]:
     from PIL import Image
 
     from . import templates as T
@@ -269,23 +296,28 @@ def render_job(job: dict, brand_name: str | None, out: Path, base: Path) -> list
     tpl = T.TEMPLATES.get(job.get("template", "poster"))
     if not tpl:
         sys.exit(f"unknown template {job.get('template')}; use {', '.join(T.TEMPLATES)}")
-    name = job.get("name") or re.sub(r"[^a-z0-9]+", "-", data.get("title", "art").lower())[:30].strip("-") or "art"
+    name = _safe_name(job.get("name") or re.sub(r"[^a-z0-9]+", "-", data.get("title", "art").lower())[:30])
+    taken = set() if taken is None else taken
     results = []
     for size in job.get("sizes", ["square"]):
         label, W, H = T.parse_size(size)
         lay = tpl(data, brand, W, H)
-        stem = out / f"{name}-{label}"
-        svg, png = stem.with_suffix(".svg"), stem.with_suffix(".png")
-        svg.write_text(lay.svg, encoding="utf-8")
-        _resvg(svg, png)
-        bg_svg = out / f".{name}-{label}.bg.svg"
-        bg_png = bg_svg.with_suffix(".png")
-        bg_svg.write_text(T.strip_text(lay.svg), encoding="utf-8")
-        _resvg(bg_svg, bg_png)
-        warn = check_boxes(lay.boxes, Image.open(bg_png).convert("RGB"), brand, W, H)
-        bg_svg.unlink(); bg_png.unlink()
-        if not job.get("keep_svg"):
-            svg.unlink()
+        stem_name, n = f"{name}-{_safe_name(label)}", 2
+        while stem_name in taken:  # two jobs or sizes with one name must not overwrite each other
+            stem_name, n = f"{name}-{_safe_name(label)}-{n}", n + 1
+        taken.add(stem_name)
+        png = out / f"{stem_name}.png"
+        svg = out / f"{stem_name}.svg" if job.get("keep_svg") else _temp_path(out, ".svg")
+        bg_svg, bg_png = _temp_path(out, ".svg"), _temp_path(out, ".png")
+        try:
+            svg.write_text(lay.svg, encoding="utf-8")
+            _resvg(svg, png)
+            bg_svg.write_text(T.strip_text(lay.svg), encoding="utf-8")
+            _resvg(bg_svg, bg_png)
+            warn = list(lay.warnings) + check_boxes(lay.boxes, Image.open(bg_png).convert("RGB"), brand, W, H)
+        finally:
+            for f in (bg_svg, bg_png) + (() if job.get("keep_svg") else (svg,)):
+                f.unlink(missing_ok=True)
         im = Image.open(png)
         if im.size != (W, H):
             warn.append(f"size {im.size} != {(W, H)}")
@@ -304,7 +336,7 @@ def check_boxes(boxes, bg, brand, W, H) -> list[str]:
             warn.append(f"{bx.role}: text cut to {len(bx.fit.lines)} lines (shorten it)")
         elif bx.fit and bx.fit.shrunk_to_min:
             warn.append(f"{bx.role}: font shrunk to minimum {bx.size}px")
-        if bx.y + bx.h > H + 1 or bx.y < -1:
+        if bx.y + bx.h > H + 1 or bx.y < -1 or bx.x < -1 or bx.x + bx.w > W + 1:
             warn.append(f"{bx.role}: outside the canvas")
         if bx.role in ("cta", "eyebrow"):
             ratio = _contrast(_hex(brand["colors"]["on_accent"]), _hex(brand["colors"]["accent"]))
@@ -364,8 +396,9 @@ def cmd_batch(a: argparse.Namespace) -> None:
     out = Path(a.out or spec.get("out") or out_dir(None, spec_path.stem))
     out.mkdir(parents=True, exist_ok=True)
     results = []
+    taken: set[str] = set()
     for job in spec["jobs"]:
-        results += render_job(job, spec.get("brand"), out, spec_path.parent.resolve())
+        results += render_job(job, spec.get("brand"), out, spec_path.parent.resolve(), taken)
     _report(results, out)
 
 
@@ -431,12 +464,11 @@ def cmd_3d(a: argparse.Namespace) -> None:
     from . import templates as T
 
     _label, W, H = T.parse_size(a.size)
+    if a.kind != "shot" and a.bg != "transparent" and (W % 2 or H % 2):
+        sys.exit(f"mp4 (yuv420p) needs even width and height, got {W}x{H}")
     src = a.input or a.text or "logo"
     d = out_dir(a.out, Path(src).stem if a.input else src)
-    raw = d / "raw"
-    if raw.exists():
-        shutil.rmtree(raw)
-    raw.mkdir()
+    raw = Path(tempfile.mkdtemp(prefix=".art3d-raw-", dir=d))  # private to this run
     job = {"mode": a.kind, "out_dir": str(raw), "size": [W, H], "frames": a.frames, "samples": a.samples,
            "engine": a.engine, "elevation": a.elevation, "lens": a.lens}
     if a.color:
@@ -447,7 +479,7 @@ def cmd_3d(a: argparse.Namespace) -> None:
         job["roughness"] = a.roughness
     if a.kind == "logo":
         if a.text:
-            svg = d / "text.svg"
+            svg = raw / "text.svg"
             _text_svg(a.text, a.font, svg)
         elif a.input and a.input.lower().endswith(".svg"):
             svg = Path(a.input).resolve()
@@ -483,8 +515,7 @@ def cmd_3d(a: argparse.Namespace) -> None:
         if len(outs) > 1:
             contact_sheet(outs, d / "contact.png")
     else:
-        frames = d / "frames"
-        frames.mkdir(exist_ok=True)
+        frames = Path(tempfile.mkdtemp(prefix=".art3d-frames-", dir=d))  # only this run's frames reach ffmpeg
         for f in sorted(raw.glob("f_*.png")):
             _composite(f, frames / f.name, a.bg, canvas)
         allf = sorted(frames.glob("f_*.png"))
@@ -512,9 +543,13 @@ def cmd_3d(a: argparse.Namespace) -> None:
             vf = f"fps={min(a.fps, 15)},scale={min(W, 540)}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer"
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-framerate", str(a.fps), "-i", pattern, "-vf", vf, str(gif)], check=True)
             outs.append(gif)
-        if not a.keep_frames:
+        if a.keep_frames:
+            print(f"frames kept in {frames}")
+        else:
             shutil.rmtree(frames)
-    if not a.keep_frames:
+    if a.keep_frames:
+        print(f"raw renders kept in {raw}")
+    else:
         shutil.rmtree(raw)
     for o in outs:
         print(f"-> {o} ({o.stat().st_size // 1024} KB)")

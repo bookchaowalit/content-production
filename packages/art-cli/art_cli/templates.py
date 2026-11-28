@@ -120,11 +120,16 @@ def fit(s: str, family: str, bold: bool, max_w: float, max_lines: int, size_max:
     size = size_min
     lines = wrap(s, family, bold, size, max_w)
     cut = lines[:max_lines]
-    while cut and text_width(cut[-1] + "…", family, bold, size) > max_w:
-        cut[-1] = cut[-1][:-1]
-    if len(lines) > max_lines:
-        cut[-1] = cut[-1].rstrip() + "…"
-    return Fit(size, cut, shrunk_to_min=True, truncated=len(lines) > max_lines)
+    truncated = len(lines) > max_lines
+    for i, line in enumerate(cut):
+        last = i == len(cut) - 1
+        if text_width(line, family, bold, size) <= max_w and not (last and truncated):
+            continue
+        while line and text_width(line.rstrip() + "…", family, bold, size) > max_w:
+            line = line[:-1]
+        cut[i] = line.rstrip() + "…"
+        truncated = True
+    return Fit(size, cut, shrunk_to_min=True, truncated=truncated)
 
 
 # ------------------------------------------------------------------ svg helpers
@@ -145,6 +150,7 @@ class Layout:
     svg: str
     boxes: list[Box] = field(default_factory=list)
     text_group_id: str = "txt"
+    warnings: list[str] = field(default_factory=list)
 
 
 def esc(s: str) -> str:
@@ -280,13 +286,18 @@ def split(d: dict, b: dict, W: int, H: int) -> Layout:
         parts.append(f'<rect x="{img_box[0]}" y="{img_box[1]}" width="{img_box[2]}" height="{img_box[3]}" fill="{c["bg"]}"/>')
     parts.append(f'<rect x="{tx:.1f}" y="{ty:.1f}" width="{u * 0.07:.1f}" height="{u * 0.008:.1f}" fill="{c["accent"]}"/>')
     txt, boxes, used = text_block(d, b, tx, 0, tw, th, u, c["ink"], c["ink_muted"], c["accent"], 0.085)
+    warns = [f"text block {used:.0f}px is taller than its panel {th:.0f}px (shorten the copy)"] if used > th + 1 else []
     y0 = ty + u * 0.04 + max(0, (th - u * 0.04 - used) / 2) if landscape else ty + u * 0.04
     for bx in boxes:
         bx.y += y0
     parts.append(f'<g id="txt" transform="translate(0 {y0:.1f})">{txt}</g>')
-    parts.append(footer(d, b, W, H, u, c["ink_muted"], pad))
+    label = d.get("footer", b.get("footer", ""))
+    if label:  # on the panel, never over the photo
+        fx, anchor = (tx, "start") if landscape else (W - pad, "end")
+        parts.append(f'<text x="{fx:.1f}" y="{H - pad * 0.6:.1f}" font-family="{esc(b["fonts"]["body"])}" '
+                     f'font-size="{round(u * 0.024)}" fill="{c["ink_muted"]}" text-anchor="{anchor}">{esc(label)}</text>')
     parts.append("</svg>")
-    return Layout("".join(parts), boxes)
+    return Layout("".join(parts), boxes, warnings=warns)
 
 
 def card(d: dict, b: dict, W: int, H: int) -> Layout:
@@ -300,6 +311,7 @@ def card(d: dict, b: dict, W: int, H: int) -> Layout:
              f'<rect x="{pad:.1f}" y="{pad:.1f}" width="{u * 0.012:.1f}" height="{u * 0.12:.1f}" fill="{c["accent"]}"/>']
     tw = W - pad * 2 if W <= H * 1.2 else W * 0.7
     txt, boxes, used = text_block(d, b, pad, 0, tw, H - pad * 2, u, c["fg"], c["muted"], c["accent"], 0.12)
+    warns = [f"text block {used:.0f}px is taller than the card {H - pad * 2:.0f}px (shorten the copy)"] if used > H - pad * 2 else []
     y0 = max(pad * 1.6, (H - used) / 2)
     for bx in boxes:
         bx.y += y0
@@ -307,7 +319,7 @@ def card(d: dict, b: dict, W: int, H: int) -> Layout:
     parts.append(f'<g id="txt" transform="translate(0 {y0:.1f})">{txt}</g>')
     parts.append(footer(d, b, W, H, u, c["muted"], pad))
     parts.append("</svg>")
-    return Layout("".join(parts), boxes)
+    return Layout("".join(parts), boxes, warnings=warns)
 
 
 TEMPLATES = {"poster": poster, "split": split, "card": card}

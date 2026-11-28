@@ -177,13 +177,20 @@ aspect = W / H
 sensor_half = math.atan((cam_data.sensor_width / 2) / cam_data.lens)  # horizontal half-FOV
 v_half = math.atan(math.tan(sensor_half) / aspect) if aspect >= 1 else sensor_half
 h_half = math.atan(math.tan(v_half) * aspect)
-# a spinning model sweeps a circle of `radius`; fit that width and the height separately
-fit_dist = max(radius / math.tan(h_half), (height * 0.5) / math.tan(v_half)) * job.get("fit", 1.1) + radius * 0.6
+def fit_distance(el_deg):
+    """Distance that keeps the model in frame from this elevation.
+
+    A spinning model sweeps a circle of `radius`: its projected width is 2*radius, and seen from
+    elevation e its projected height is height*cos(e) + 2*radius*sin(e) (top face foreshortened in).
+    """
+    e = math.radians(abs(el_deg))
+    half_h = (height * math.cos(e) + 2 * radius * math.sin(e)) / 2
+    return max(radius / math.tan(h_half), half_h / math.tan(v_half)) * job.get("fit", 1.1) + radius * 0.6
 
 
 def place_camera(az_deg, el_deg):
     a, e = math.radians(az_deg), math.radians(el_deg)
-    cam.location = target + Vector((math.sin(a) * math.cos(e), -math.cos(a) * math.cos(e), math.sin(e))) * fit_dist
+    cam.location = target + Vector((math.sin(a) * math.cos(e), -math.cos(a) * math.cos(e), math.sin(e))) * fit_distance(el_deg)
     cam.rotation_euler = (target - cam.location).to_track_quat("-Z", "Y").to_euler()
 
 
@@ -199,6 +206,7 @@ r.image_settings.color_mode = "RGBA"
 engine = job.get("engine", "cycles")
 if engine == "eevee":
     r.engine = "BLENDER_EEVEE"
+    floor.hide_render = True  # shadow catchers are Cycles-only; EEVEE would draw a solid plane
 else:
     r.engine = "CYCLES"
     cy = scene.cycles

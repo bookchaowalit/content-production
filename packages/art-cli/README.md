@@ -45,3 +45,9 @@ Runtimes found on `PATH`: `resvg` (required for templates), `blender` and `ffmpe
 ```bash
 uv pip install -e ".[dev]" && python -m pytest
 ```
+
+## Known gaps
+
+- `split` ignores `logo` (poster and card place it); add a panel slot when a client needs it.
+- `art check DIR` re-reads the absolute paths stored in `report.json`, so a moved output folder
+  reports files as missing; re-run `art batch` there instead.
