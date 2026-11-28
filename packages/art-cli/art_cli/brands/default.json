@@ -1,0 +1,16 @@
+{
+  "name": "default",
+  "fonts": { "heading": "Prompt", "body": "IBM Plex Sans Thai" },
+  "colors": {
+    "bg": "#0f172a",
+    "bg2": "#1e3a5f",
+    "fg": "#ffffff",
+    "muted": "#cbd5e1",
+    "accent": "#f59e0b",
+    "on_accent": "#111827",
+    "panel": "#f8fafc",
+    "ink": "#0f172a",
+    "ink_muted": "#475569"
+  },
+  "footer": ""
+}

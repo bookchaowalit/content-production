@@ -14,6 +14,8 @@ adapter และ engine ที่ตรวจสอบซ้ำได้ ใช
 - `packages/` — IR และ library ที่ `services/` ติดตั้งตรง ๆ; `brief-adapter-kit`,
   `production-trace` และ `file-intake` มีสำเนาใน `src/` ที่
   `tests/test_vendored_packages_parity.py` ตรวจว่าตรงกัน
+- `packages/art-cli/` — คำสั่ง `art` สำหรับงานภาพบนเครื่อง: template แบรนด์พร้อมตัดคำไทย, batch หลายขนาด,
+  ตรวจ contrast, ร่างภาพด้วย GPU, ภาพจาก ai-gateway และ Blender turntable (ดู README ใน package)
 - `apps/` — หน้าเว็บและแอป desktop ของ production (production console,
   video studio web/desktop)
 
