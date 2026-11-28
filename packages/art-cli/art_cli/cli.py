@@ -121,7 +121,7 @@ def _gateway_base() -> str:
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """Requests that carry the gateway token never follow a redirect (urllib would forward Authorization)."""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
