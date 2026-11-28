@@ -1,0 +1,11 @@
+{
+  "name": "bookchaowalit",
+  "source": "bookchaowalit-website/portfolio-site-web app CSS (dark theme accent #8fb8ff, light #1f5fbf), Noto Sans Thai",
+  "fonts": { "heading": "Noto Sans Thai", "body": "Noto Sans Thai" },
+  "colors": {
+    "bg": "#121212", "bg2": "#1b2433", "fg": "#ffffff", "muted": "#c9ced6",
+    "accent": "#8fb8ff", "on_accent": "#0b1a33",
+    "panel": "#ffffff", "ink": "#121212", "ink_muted": "#4a4f57"
+  },
+  "footer": "bookchaowalit.com"
+}

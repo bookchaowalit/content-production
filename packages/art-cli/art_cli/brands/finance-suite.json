@@ -1,0 +1,11 @@
+{
+  "name": "finance-suite",
+  "source": "bookchaowalit/finance-suite-web app CSS (--color-accent #17614a, bg #f6f7f5, fg #17201c), Noto Sans Thai",
+  "fonts": { "heading": "Noto Sans Thai", "body": "Noto Sans Thai" },
+  "colors": {
+    "bg": "#17201c", "bg2": "#17614a", "fg": "#ffffff", "muted": "#d5ddd9",
+    "accent": "#3fae86", "on_accent": "#0d1a15",
+    "panel": "#f6f7f5", "ink": "#17201c", "ink_muted": "#4f5a55"
+  },
+  "footer": ""
+}
